@@ -24,6 +24,8 @@ export {
   triggerGitBuild,
   finalizeBuild,
   appsForRepoPush,
+  attachDatabase,
+  detachDatabase,
   listDeployments,
   latestBuildingDeployment,
 } from "./apps";

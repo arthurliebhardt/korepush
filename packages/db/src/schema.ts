@@ -7,6 +7,7 @@ import {
   jsonb,
   uuid,
   pgEnum,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
 /* ──────────────────────────────────────────────────────────
@@ -128,6 +129,11 @@ export const apps = pgTable("apps", {
   githubInstallationId: uuid("github_installation_id").references(
     () => githubInstallations.id,
   ),
+  // An attached database's connection string is injected as `dbEnvVar`.
+  attachedDbId: uuid("attached_db_id").references((): AnyPgColumn => databases.id, {
+    onDelete: "set null",
+  }),
+  dbEnvVar: text("db_env_var").default("DATABASE_URL").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

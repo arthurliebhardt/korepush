@@ -15,6 +15,13 @@
       "when": 1780060249002,
       "tag": "0001_same_wallow",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780070018056,
+      "tag": "0002_flippant_calypso",
+      "breakpoints": true
     }
   ]
 }

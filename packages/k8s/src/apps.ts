@@ -1,3 +1,4 @@
+import type { V1EnvVar } from "@kubernetes/client-node";
 import { and, desc, eq } from "drizzle-orm";
 import { db, schema } from "@korepush/db";
 import { k8sClients, managedLabels } from "./client";
@@ -101,14 +102,29 @@ async function reconcileApp(
     "korepush.io/app": app.slug,
     app: app.slug,
   });
-  const env = Object.entries(app.env ?? {}).map(([name, value]) => ({
-    name,
-    value,
-  }));
+  const env: V1EnvVar[] = Object.entries(app.env ?? {}).map(
+    ([name, value]) => ({ name, value }),
+  );
   // Buildpack/Railpack (and most frameworks) bind to $PORT; inject it so a
   // deployed app listens on its declared container port without extra config.
   if (!env.some((e) => e.name === "PORT")) {
     env.push({ name: "PORT", value: String(app.port) });
+  }
+  // Attached database: inject its connection string from the CNPG secret.
+  if (app.attachedDbId) {
+    const [database] = await db
+      .select()
+      .from(schema.databases)
+      .where(eq(schema.databases.id, app.attachedDbId))
+      .limit(1);
+    if (database?.connectionSecret) {
+      env.push({
+        name: app.dbEnvVar || "DATABASE_URL",
+        valueFrom: {
+          secretKeyRef: { name: database.connectionSecret, key: "uri" },
+        },
+      });
+    }
   }
 
   const container = {
@@ -400,6 +416,59 @@ export async function latestBuildingDeployment(appId: string) {
     .orderBy(desc(schema.deployments.createdAt))
     .limit(1);
   return dep ?? null;
+}
+
+/** Attach a database: inject its connection string into the app + redeploy. */
+export async function attachDatabase(
+  spaceSlug: string,
+  appSlug: string,
+  databaseId: string,
+  envVar = "DATABASE_URL",
+) {
+  const space = await getSpaceBySlug(spaceSlug);
+  if (!space) throw new Error("Space not found");
+  const app = await getApp(space.id, appSlug);
+  if (!app) throw new Error("App not found");
+  const [database] = await db
+    .select()
+    .from(schema.databases)
+    .where(
+      and(
+        eq(schema.databases.id, databaseId),
+        eq(schema.databases.spaceId, space.id),
+      ),
+    )
+    .limit(1);
+  if (!database) throw new Error("Database not found in this space");
+
+  await db
+    .update(schema.apps)
+    .set({ attachedDbId: databaseId, dbEnvVar: envVar, updatedAt: new Date() })
+    .where(eq(schema.apps.id, app.id));
+  if (app.image) {
+    await reconcileApp(space.namespace, space.slug, {
+      ...app,
+      attachedDbId: databaseId,
+      dbEnvVar: envVar,
+    });
+  }
+}
+
+export async function detachDatabase(spaceSlug: string, appSlug: string) {
+  const space = await getSpaceBySlug(spaceSlug);
+  if (!space) return;
+  const app = await getApp(space.id, appSlug);
+  if (!app) return;
+  await db
+    .update(schema.apps)
+    .set({ attachedDbId: null, updatedAt: new Date() })
+    .where(eq(schema.apps.id, app.id));
+  if (app.image) {
+    await reconcileApp(space.namespace, space.slug, {
+      ...app,
+      attachedDbId: null,
+    });
+  }
 }
 
 export async function deleteApp(spaceSlug: string, slug: string) {

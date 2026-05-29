@@ -14,6 +14,8 @@ import {
   getApp,
   createDatabase,
   deleteDatabase,
+  attachDatabase,
+  detachDatabase,
 } from "@korepush/k8s";
 import { mintCloneTokenForRepo } from "@/lib/github/app";
 
@@ -144,6 +146,35 @@ export async function deleteDatabaseAction(
   try {
     await deleteDatabase(spaceSlug, slug);
     revalidatePath(`/spaces/${spaceSlug}`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  }
+}
+
+export async function attachDatabaseAction(
+  spaceSlug: string,
+  appSlug: string,
+  databaseId: string,
+): Promise<ActionResult> {
+  await requireUser();
+  try {
+    await attachDatabase(spaceSlug, appSlug, databaseId);
+    revalidatePath(`/spaces/${spaceSlug}/apps/${appSlug}`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  }
+}
+
+export async function detachDatabaseAction(
+  spaceSlug: string,
+  appSlug: string,
+): Promise<ActionResult> {
+  await requireUser();
+  try {
+    await detachDatabase(spaceSlug, appSlug);
+    revalidatePath(`/spaces/${spaceSlug}/apps/${appSlug}`);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: errorMessage(err) };

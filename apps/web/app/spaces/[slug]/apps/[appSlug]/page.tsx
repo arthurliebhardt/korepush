@@ -6,10 +6,12 @@ import {
   getApp,
   latestBuildingDeployment,
   finalizeBuild,
+  listDatabases,
 } from "@korepush/k8s";
 import { AppLive } from "@/components/app-live";
 import { BuildLogs } from "@/components/build-logs";
 import { RedeployButton } from "@/components/redeploy-button";
+import { AttachDatabase } from "@/components/attach-database";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +42,11 @@ export default async function AppPage({
   const building = isGit ? await latestBuildingDeployment(app.id) : null;
   const buildId = building?.id ?? null;
 
+  const databases = (await listDatabases(space.id)).map((d) => ({
+    id: d.id,
+    name: d.name,
+  }));
+
   return (
     <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
       <Link
@@ -59,6 +66,16 @@ export default async function AppPage({
         {isGit && (
           <RedeployButton spaceSlug={space.slug} appSlug={app.slug} />
         )}
+      </div>
+
+      <div className="mb-5">
+        <AttachDatabase
+          spaceSlug={space.slug}
+          appSlug={app.slug}
+          databases={databases}
+          attachedDbId={app.attachedDbId}
+          dbEnvVar={app.dbEnvVar}
+        />
       </div>
 
       {buildId ? (
