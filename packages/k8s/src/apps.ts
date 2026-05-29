@@ -417,6 +417,79 @@ export async function finalizeBuild(deploymentId: string): Promise<string> {
   return dep.status;
 }
 
+/**
+ * Roll an app back to a prior SUCCEEDED deployment's image — no rebuild. The
+ * target tag is already in the registry, so we just re-point app.image and
+ * re-reconcile (k8s rolling update), recording a new deployment row
+ * (trigger="rollback"). Env/port/replicas are NOT reverted — they live on the
+ * apps row and are reapplied live to the old image.
+ */
+export async function rollbackDeployment(
+  spaceSlug: string,
+  appSlug: string,
+  targetDeploymentId: string,
+) {
+  const space = await getSpaceBySlug(spaceSlug);
+  if (!space) throw new Error("Space not found");
+  const app = await getApp(space.id, appSlug);
+  if (!app) throw new Error("App not found");
+
+  const [target] = await db
+    .select()
+    .from(schema.deployments)
+    .where(
+      and(
+        eq(schema.deployments.id, targetDeploymentId),
+        eq(schema.deployments.appId, app.id), // scope: no cross-app ids
+      ),
+    )
+    .limit(1);
+  if (!target) throw new Error("Deployment not found");
+  if (target.status !== "succeeded" || !target.image) {
+    throw new Error("Can only roll back to a succeeded deployment");
+  }
+  if (app.image === target.image) {
+    throw new Error("App is already on this image");
+  }
+
+  const [dep] = await db
+    .insert(schema.deployments)
+    .values({
+      appId: app.id,
+      image: target.image,
+      commitSha: target.commitSha,
+      status: "deploying",
+      trigger: "rollback",
+    })
+    .returning();
+
+  try {
+    await db
+      .update(schema.apps)
+      .set({ image: target.image, status: "running", updatedAt: new Date() })
+      .where(eq(schema.apps.id, app.id));
+    await reconcileApp(space.namespace, space.slug, {
+      ...app,
+      image: target.image,
+    });
+    await db
+      .update(schema.deployments)
+      .set({ status: "succeeded", finishedAt: new Date() })
+      .where(eq(schema.deployments.id, dep.id));
+  } catch (err) {
+    await db
+      .update(schema.apps)
+      .set({ status: "failed", updatedAt: new Date() })
+      .where(eq(schema.apps.id, app.id));
+    await db
+      .update(schema.deployments)
+      .set({ status: "failed", finishedAt: new Date() })
+      .where(eq(schema.deployments.id, dep.id));
+    throw err;
+  }
+  return dep;
+}
+
 /** Git apps subscribed to a repo+branch (for push-to-deploy webhooks). */
 export async function appsForRepoPush(repoFullName: string, branch: string) {
   const rows = await db

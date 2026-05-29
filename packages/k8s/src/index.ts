@@ -27,6 +27,7 @@ export {
   attachDatabase,
   detachDatabase,
   setAppEnv,
+  rollbackDeployment,
   listDeployments,
   latestBuildingDeployment,
 } from "./apps";

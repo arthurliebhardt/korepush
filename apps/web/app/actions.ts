@@ -17,6 +17,7 @@ import {
   attachDatabase,
   detachDatabase,
   setAppEnv,
+  rollbackDeployment,
 } from "@korepush/k8s";
 import { mintCloneTokenForRepo, detectPort } from "@/lib/github/app";
 
@@ -184,6 +185,21 @@ export async function detachDatabaseAction(
   await requireUser();
   try {
     await detachDatabase(spaceSlug, appSlug);
+    revalidatePath(`/spaces/${spaceSlug}/apps/${appSlug}`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  }
+}
+
+export async function rollbackAction(
+  spaceSlug: string,
+  appSlug: string,
+  deploymentId: string,
+): Promise<ActionResult> {
+  await requireUser();
+  try {
+    await rollbackDeployment(spaceSlug, appSlug, deploymentId);
     revalidatePath(`/spaces/${spaceSlug}/apps/${appSlug}`);
     return { ok: true };
   } catch (err) {

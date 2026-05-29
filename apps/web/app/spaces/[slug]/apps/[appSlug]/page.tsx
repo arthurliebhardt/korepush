@@ -7,13 +7,16 @@ import {
   latestBuildingDeployment,
   finalizeBuild,
   listDatabases,
+  listDeployments,
 } from "@korepush/k8s";
 import { AppLive } from "@/components/app-live";
 import { AppMetrics } from "@/components/app-metrics";
 import { BuildLogs } from "@/components/build-logs";
 import { RedeployButton } from "@/components/redeploy-button";
+import { RollbackButton } from "@/components/rollback-button";
 import { AttachDatabase } from "@/components/attach-database";
 import { EnvEditor } from "@/components/env-editor";
+import { StatusBadge } from "@/components/status-badge";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +51,8 @@ export default async function AppPage({
     id: d.id,
     name: d.name,
   }));
+
+  const deployments = await listDeployments(app.id);
 
   return (
     <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
@@ -104,8 +109,58 @@ export default async function AppPage({
             appSlug={app.slug}
             namespace={space.namespace}
           />
+          {deployments.length > 0 && (
+            <div>
+              <h2 className="mb-3 text-sm font-medium text-muted">
+                Deployments
+              </h2>
+              <ul className="space-y-2">
+                {deployments.map((d) => {
+                  const tag = d.image?.split(":").pop() ?? "—";
+                  const isCurrent = !!d.image && d.image === app.image;
+                  const canRollback =
+                    d.status === "succeeded" && !!d.image && !isCurrent;
+                  return (
+                    <li
+                      key={d.id}
+                      className="card flex items-center justify-between py-3"
+                    >
+                      <div className="flex items-center gap-3">
+                        <StatusBadge status={d.status} />
+                        <span className="font-mono text-xs">{tag}</span>
+                        <span className="text-xs text-muted">{d.trigger}</span>
+                        <span className="text-xs text-muted">
+                          {timeAgo(d.createdAt)}
+                        </span>
+                      </div>
+                      {isCurrent ? (
+                        <span className="text-xs text-success">Current</span>
+                      ) : canRollback ? (
+                        <RollbackButton
+                          spaceSlug={space.slug}
+                          appSlug={app.slug}
+                          deploymentId={d.id}
+                          tag={tag}
+                        />
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
         </div>
       )}
     </div>
   );
+}
+
+function timeAgo(date: Date): string {
+  const s = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
 }
