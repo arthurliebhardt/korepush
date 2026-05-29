@@ -21,7 +21,8 @@ export function CreateApp({
   const [image, setImage] = useState("");
   const [repoUrl, setRepoUrl] = useState("");
   const [gitRef, setGitRef] = useState("main");
-  const [port, setPort] = useState("3000");
+  // Empty = auto: git apps auto-detect the port from the repo; image apps → 80.
+  const [port, setPort] = useState("");
   // Use the repo picker when repos are connected; allow falling back to a URL.
   const [manualUrl, setManualUrl] = useState(repos.length === 0);
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +60,7 @@ export function CreateApp({
           name,
           repoUrl,
           gitRef: gitRef || "main",
-          port: Number(port) || 3000,
+          port: port ? Number(port) : undefined,
         });
         if (!res.ok) return setError(res.error);
         router.push(
@@ -180,6 +181,7 @@ export function CreateApp({
           <input
             className="input"
             type="number"
+            placeholder={mode === "git" ? "Auto" : "80"}
             value={port}
             onChange={(e) => setPort(e.target.value)}
           />
@@ -202,7 +204,9 @@ export function CreateApp({
       {mode === "git" && (
         <p className="text-xs text-muted">
           Built in-cluster with BuildKit — uses your Dockerfile if present,
-          otherwise Railpack auto-detects the stack. Build logs stream live.
+          otherwise Railpack auto-detects the stack. Leave the port blank to
+          auto-detect it (Dockerfile EXPOSE or your start script). Build logs
+          stream live.
         </p>
       )}
       {error && <p className="text-sm text-danger">{error}</p>}

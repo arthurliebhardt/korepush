@@ -17,7 +17,7 @@ import {
   attachDatabase,
   detachDatabase,
 } from "@korepush/k8s";
-import { mintCloneTokenForRepo } from "@/lib/github/app";
+import { mintCloneTokenForRepo, detectPort } from "@/lib/github/app";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 export type BuildActionResult =
@@ -85,7 +85,16 @@ export async function createGitAppAction(input: {
 }): Promise<BuildActionResult> {
   await requireUser();
   try {
-    const app = await createGitApp(input);
+    // No port given → auto-detect from the repo (Dockerfile EXPOSE / start
+    // script), falling back to 3000. korepush injects PORT=<port>, so a
+    // $PORT-honoring app conforms regardless.
+    const port =
+      input.port ??
+      (await detectPort(input.repoUrl, input.gitRef ?? "main").catch(
+        () => null,
+      )) ??
+      3000;
+    const app = await createGitApp({ ...input, port });
     const token = await mintCloneTokenForRepo(input.repoUrl).catch(() => null);
     const { deploymentId } = await triggerGitBuild(
       input.spaceSlug,

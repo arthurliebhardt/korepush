@@ -135,6 +135,106 @@ function ownerOf(repoUrl: string): string | null {
   return m ? m[1] : null;
 }
 
+function parseRepo(repoUrl: string): { owner: string; repo: string } | null {
+  const m = repoUrl.match(/github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?\/?$/i);
+  return m ? { owner: m[1], repo: m[2] } : null;
+}
+
+/** Octokit scoped to the installation owning `owner`, or null (public repo). */
+async function octokitForOwner(owner: string) {
+  const app = await getGithubApp();
+  if (!app) return null;
+  const [inst] = await db
+    .select()
+    .from(schema.githubInstallations)
+    .where(eq(schema.githubInstallations.accountLogin, owner))
+    .limit(1);
+  if (!inst) return null;
+  return app.getInstallationOctokit(Number(inst.installationId));
+}
+
+/** Read a file from a GitHub repo (installation-authed if private, else public). */
+async function fetchRepoFile(
+  repoUrl: string,
+  ref: string,
+  path: string,
+): Promise<string | null> {
+  const r = parseRepo(repoUrl);
+  if (!r) return null;
+  const decode = (content?: string) =>
+    content ? Buffer.from(content, "base64").toString("utf8") : null;
+
+  const octokit = await octokitForOwner(r.owner).catch(() => null);
+  if (octokit) {
+    try {
+      const res = await octokit.request(
+        "GET /repos/{owner}/{repo}/contents/{path}",
+        { owner: r.owner, repo: r.repo, path, ref },
+      );
+      return decode((res.data as { content?: string }).content);
+    } catch {
+      return null; // 404 / not a file
+    }
+  }
+  // No installation → try the public contents API (unauthenticated).
+  try {
+    const res = await fetch(
+      `https://api.github.com/repos/${r.owner}/${r.repo}/contents/${path}?ref=${encodeURIComponent(ref)}`,
+      {
+        headers: { Accept: "application/vnd.github+json", "User-Agent": "korepush" },
+        signal: AbortSignal.timeout(5000),
+      },
+    );
+    if (!res.ok) return null;
+    return decode(((await res.json()) as { content?: string }).content);
+  } catch {
+    return null;
+  }
+}
+
+function validPort(n: number): number | null {
+  return Number.isInteger(n) && n > 0 && n < 65536 ? n : null;
+}
+
+/**
+ * Best-effort guess at the port a repo's app listens on, for the deploy form.
+ * Authoritative signals first (Dockerfile EXPOSE, an explicit port in the
+ * package.json start script); otherwise a Node default. Returns null when
+ * nothing is found — korepush injects PORT=<port> anyway, so a $PORT-honoring
+ * app conforms to whatever the caller defaults to.
+ */
+export async function detectPort(
+  repoUrl: string,
+  ref = "main",
+): Promise<number | null> {
+  const dockerfile = await fetchRepoFile(repoUrl, ref, "Dockerfile");
+  if (dockerfile) {
+    // First numeric EXPOSE (ignore ${PORT}-style and protocol suffixes).
+    const m = dockerfile.match(/^\s*EXPOSE\s+(\d{2,5})/im);
+    if (m) {
+      const p = validPort(Number(m[1]));
+      if (p) return p;
+    }
+  }
+  const pkgRaw = await fetchRepoFile(repoUrl, ref, "package.json");
+  if (pkgRaw) {
+    try {
+      const pkg = JSON.parse(pkgRaw) as { scripts?: Record<string, string> };
+      // Explicit port in the start script: -p 8080 / --port=8080 / PORT=8080.
+      const start = pkg.scripts?.start ?? "";
+      const pm = start.match(/(?:-p|--port|PORT)[\s=]+(\d{2,5})/i);
+      if (pm) {
+        const p = validPort(Number(pm[1]));
+        if (p) return p;
+      }
+      return 3000; // Node default (Next/Remix/Express/CRA all use 3000)
+    } catch {
+      // malformed package.json — fall through
+    }
+  }
+  return null;
+}
+
 /**
  * Mint a clone token for a repo by matching its owner to an installation.
  * Returns null for public repos with no installation (clone works without auth).
