@@ -17,6 +17,10 @@ export async function GET() {
 
   const base = process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
   const state = randomBytes(16).toString("hex");
+  // GitHub App names are globally unique — give each instance a unique default
+  // (the user can still rename it on GitHub's create page). Stored slug comes
+  // from the conversion response, so this only sets the requested display name.
+  const appName = `korepush-${randomBytes(4).toString("hex")}`;
   (await cookies()).set("gh_manifest_state", state, {
     httpOnly: true,
     sameSite: "lax",
@@ -25,7 +29,7 @@ export async function GET() {
   });
 
   const manifest = {
-    name: "korepush",
+    name: appName,
     url: base,
     hook_attributes: { url: `${base}/api/github/webhook`, active: true },
     redirect_url: `${base}/api/github/manifest/callback`,
