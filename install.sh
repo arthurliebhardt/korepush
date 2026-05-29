@@ -112,8 +112,10 @@ if [ "$MODE" = "domain" ]; then
     -p "[{\"op\":\"add\",\"path\":\"/spec/rules/0/host\",\"value\":\"${INGRESS_HOST}\"}]"
 fi
 
-"$KUBECTL" -n korepush-system rollout status deploy/postgres --timeout=180s
-"$KUBECTL" -n korepush-system rollout status deploy/korepush --timeout=300s
+# Generous timeouts: a cold k3s pulls system images (storage, ingress) and the
+# control-plane image concurrently on first boot, so first rollout can be slow.
+"$KUBECTL" -n korepush-system rollout status deploy/postgres --timeout=420s
+"$KUBECTL" -n korepush-system rollout status deploy/korepush --timeout=420s
 
 log "Done!"
 echo
