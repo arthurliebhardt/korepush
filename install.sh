@@ -98,11 +98,17 @@ for _ in $(seq 1 60); do
 done
 node_ready || die "Cluster did not become ready in time."
 
-# Install the CloudNativePG operator (Postgres databases in spaces). Use
-# --server-side: the CRDs are too large for client-side apply. Idempotent.
+# Install the CloudNativePG operator (Postgres databases in spaces). Reuse an
+# existing install (e.g. Helm) if present — re-applying our manifest over a
+# different field manager would conflict. --server-side: the CRDs are too large
+# for client-side apply.
 log "Installing CloudNativePG operator…"
-CNPG_MANIFEST="${KOREPUSH_CNPG_MANIFEST:-https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.29/releases/cnpg-1.29.1.yaml}"
-"$KUBECTL" apply --server-side -f "$CNPG_MANIFEST" || die "Failed to install CloudNativePG."
+if "$KUBECTL" get crd clusters.postgresql.cnpg.io >/dev/null 2>&1; then
+  log "CloudNativePG already present; using the existing installation."
+else
+  CNPG_MANIFEST="${KOREPUSH_CNPG_MANIFEST:-https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.29/releases/cnpg-1.29.1.yaml}"
+  "$KUBECTL" apply --server-side -f "$CNPG_MANIFEST" || die "Failed to install CloudNativePG."
+fi
 "$KUBECTL" -n cnpg-system rollout status deploy/cnpg-controller-manager --timeout=180s ||
   err "CloudNativePG not ready yet; databases will work once its controller starts."
 
@@ -110,16 +116,25 @@ WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
 # 3a. Install cert-manager + Let's Encrypt ClusterIssuers (HTTPS for custom
-#     domains; the cert itself is provisioned when a domain is added via
-#     Settings). cert-manager CRDs are large → --server-side (like CNPG). Its
+#     domains). cert-manager CRDs are large → --server-side (like CNPG). Its
 #     webhook must be Ready before Issuers apply, so wait then retry the apply.
 if [ -z "${KOREPUSH_SKIP_CERTMANAGER:-}" ]; then
-  log "Installing cert-manager…"
-  CM_MANIFEST="${KOREPUSH_CERTMANAGER_MANIFEST:-https://github.com/cert-manager/cert-manager/releases/download/v1.18.2/cert-manager.yaml}"
-  "$KUBECTL" apply --server-side -f "$CM_MANIFEST" || die "Failed to install cert-manager."
-  "$KUBECTL" -n cert-manager rollout status \
-    deploy/cert-manager deploy/cert-manager-webhook deploy/cert-manager-cainjector \
-    --timeout=300s || die "cert-manager did not become ready."
+  # Reuse an existing cert-manager (e.g. Helm-installed) rather than re-applying
+  # our manifest over it — a server-side apply would conflict with its manager.
+  if "$KUBECTL" get crd clusterissuers.cert-manager.io >/dev/null 2>&1; then
+    log "cert-manager already present; using the existing installation."
+    "$KUBECTL" -n cert-manager rollout status \
+      deploy/cert-manager deploy/cert-manager-webhook deploy/cert-manager-cainjector \
+      --timeout=300s 2>/dev/null ||
+      log "Couldn't confirm cert-manager readiness (different namespace?); continuing."
+  else
+    log "Installing cert-manager…"
+    CM_MANIFEST="${KOREPUSH_CERTMANAGER_MANIFEST:-https://github.com/cert-manager/cert-manager/releases/download/v1.18.2/cert-manager.yaml}"
+    "$KUBECTL" apply --server-side -f "$CM_MANIFEST" || die "Failed to install cert-manager."
+    "$KUBECTL" -n cert-manager rollout status \
+      deploy/cert-manager deploy/cert-manager-webhook deploy/cert-manager-cainjector \
+      --timeout=300s || die "cert-manager did not become ready."
+  fi
 
   log "Creating Let's Encrypt ClusterIssuers…"
   ISSUERS="$WORK/cluster-issuers.yaml"
