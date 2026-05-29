@@ -7,6 +7,11 @@ import { k8sClients, managedLabels } from "./client";
 export const BUILD_NS = "korepush-system";
 export const REGISTRY_HOST = "registry.korepush-system.svc.cluster.local:5000";
 const BUILDKIT_IMAGE = "moby/buildkit:v0.27.0";
+// Build container: buildctl + git + the Railpack CLI (see builder/Dockerfile).
+const BUILDER_IMAGE =
+  process.env.KOREPUSH_BUILDER_IMAGE ??
+  "ghcr.io/arthurliebhardt/korepush-builder:latest";
+const RAILPACK_FRONTEND = "ghcr.io/railwayapp/railpack-frontend:v0.23.0";
 
 /** Canonical image ref — identical for buildkit push and the pod's image field. */
 export function buildImageRef(spaceSlug: string, appSlug: string, tag: string) {
@@ -18,7 +23,6 @@ export function buildJobName(appSlug: string, tag: string) {
 }
 
 const BUILD_SCRIPT = `set -e
-apk add --no-cache git >/dev/null 2>&1
 echo "── cloning $REPO_URL ($GIT_REF) ──"
 if [ -n "$GIT_REF" ]; then
   git clone --depth 1 --branch "$GIT_REF" "$REPO_URL" /workspace/repo
@@ -29,18 +33,28 @@ echo "── waiting for buildkitd ──"
 for i in $(seq 1 60); do [ -S /run/buildkit/buildkitd.sock ] && break; sleep 1; done
 cd /workspace/repo
 if [ -f Dockerfile ]; then
-  echo "── building Dockerfile -> $IMAGE ──"
+  echo "── Dockerfile detected → building with BuildKit ──"
   buildctl --addr unix:///run/buildkit/buildkitd.sock build \\
     --frontend dockerfile.v0 \\
     --local context=/workspace/repo \\
     --local dockerfile=/workspace/repo \\
     --output type=image,name=$IMAGE,push=true,registry.insecure=true \\
     --progress=plain
-  echo "── pushed $IMAGE ──"
 else
-  echo "No Dockerfile found in the repo. Railpack auto-build is coming next; add a Dockerfile for now." >&2
-  exit 1
-fi`;
+  echo "── no Dockerfile → Railpack auto-detect ──"
+  railpack prepare /workspace/repo \\
+    --plan-out /workspace/railpack-plan.json \\
+    --info-out /workspace/railpack-info.json
+  buildctl --addr unix:///run/buildkit/buildkitd.sock build \\
+    --frontend=gateway.v0 \\
+    --opt source=${RAILPACK_FRONTEND} \\
+    --local context=/workspace/repo \\
+    --local dockerfile=/workspace \\
+    --opt filename=railpack-plan.json \\
+    --output type=image,name=$IMAGE,push=true,registry.insecure=true \\
+    --progress=plain
+fi
+echo "── pushed $IMAGE ──"`;
 
 type CreateBuildJobInput = {
   jobName: string;
@@ -84,7 +98,7 @@ export async function createBuildJob(input: CreateBuildJobInput) {
             containers: [
               {
                 name: "build",
-                image: BUILDKIT_IMAGE,
+                image: BUILDER_IMAGE,
                 command: ["sh", "-c", BUILD_SCRIPT],
                 env: [
                   { name: "REPO_URL", value: input.repoUrl },

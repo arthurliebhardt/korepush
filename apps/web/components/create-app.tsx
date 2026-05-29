@@ -134,8 +134,8 @@ export function CreateApp({ spaceSlug }: { spaceSlug: string }) {
 
       {mode === "git" && (
         <p className="text-xs text-muted">
-          The repo is built in-cluster (a Dockerfile is required for now;
-          Railpack auto-detection is coming). Build logs stream live.
+          Built in-cluster with BuildKit — uses your Dockerfile if present,
+          otherwise Railpack auto-detects the stack. Build logs stream live.
         </p>
       )}
       {error && <p className="text-sm text-danger">{error}</p>}
