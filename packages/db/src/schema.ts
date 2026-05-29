@@ -124,7 +124,11 @@ export const apps = pgTable("apps", {
   gitRef: text("git_ref").default("main"),
   port: integer("port").default(3000).notNull(),
   replicas: integer("replicas").default(1).notNull(),
+  // Plain (non-secret) env vars, inlined into the Deployment pod spec.
   env: jsonb("env").$type<Record<string, string>>().default({}).notNull(),
+  // Names of secret env vars; their VALUES live only in the per-app k8s Secret
+  // `<slug>-env` (never in Postgres), injected via envFrom.secretRef.
+  secretKeys: jsonb("secret_keys").$type<string[]>().default([]).notNull(),
   status: resourceStatus("status").default("pending").notNull(),
   githubInstallationId: uuid("github_installation_id").references(
     () => githubInstallations.id,

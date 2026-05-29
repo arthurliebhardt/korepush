@@ -16,6 +16,7 @@ import {
   deleteDatabase,
   attachDatabase,
   detachDatabase,
+  setAppEnv,
 } from "@korepush/k8s";
 import { mintCloneTokenForRepo, detectPort } from "@/lib/github/app";
 
@@ -183,6 +184,43 @@ export async function detachDatabaseAction(
   await requireUser();
   try {
     await detachDatabase(spaceSlug, appSlug);
+    revalidatePath(`/spaces/${spaceSlug}/apps/${appSlug}`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  }
+}
+
+export type EnvVarInput = { key: string; value: string; secret: boolean };
+
+export async function setAppEnvAction(
+  spaceSlug: string,
+  appSlug: string,
+  vars: EnvVarInput[],
+): Promise<ActionResult> {
+  await requireUser();
+  const KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+  const plain: Record<string, string> = {};
+  const secrets: Record<string, string> = {};
+  const seen = new Set<string>();
+  for (const v of vars) {
+    const key = v.key.trim();
+    if (!key) continue;
+    if (!KEY_RE.test(key)) {
+      return { ok: false, error: `Invalid variable name: "${key}"` };
+    }
+    if (key === "PORT") {
+      return { ok: false, error: "PORT is managed by korepush." };
+    }
+    if (seen.has(key)) {
+      return { ok: false, error: `Duplicate variable: ${key}` };
+    }
+    seen.add(key);
+    if (v.secret) secrets[key] = v.value;
+    else plain[key] = v.value;
+  }
+  try {
+    await setAppEnv(spaceSlug, appSlug, { plain, secrets });
     revalidatePath(`/spaces/${spaceSlug}/apps/${appSlug}`);
     return { ok: true };
   } catch (err) {

@@ -132,6 +132,12 @@ async function reconcileApp(
     image: app.image!,
     ports: [{ containerPort: app.port }],
     env,
+    // Secret env vars: inject the whole per-app Secret via envFrom so values
+    // never appear inline in the Deployment spec. Explicit `env` entries (PORT,
+    // the attached-db secretKeyRef) take precedence over envFrom keys.
+    ...(app.secretKeys?.length
+      ? { envFrom: [{ secretRef: { name: `${app.slug}-env` } }] }
+      : {}),
     // Required: the space ResourceQuota rejects pods without requests + limits.
     resources: {
       requests: { cpu: "50m", memory: "64Mi" },
@@ -157,6 +163,14 @@ async function reconcileApp(
   } else {
     existing.spec!.replicas = app.replicas;
     existing.spec!.template.spec!.containers = [container];
+    // Bump a restart annotation so the pods roll and re-read env — a Secret
+    // data change alone does not trigger a rollout.
+    const tmpl = existing.spec!.template;
+    tmpl.metadata = tmpl.metadata ?? {};
+    tmpl.metadata.annotations = {
+      ...tmpl.metadata.annotations,
+      "korepush.io/restartedAt": new Date().toISOString(),
+    };
     await apps.replaceNamespacedDeployment({
       name: app.slug,
       namespace,
@@ -458,6 +472,90 @@ export async function latestBuildingDeployment(appId: string) {
   return dep ?? null;
 }
 
+/**
+ * Set an app's env: plain vars persist on the apps row + inline into the pod
+ * spec; secret vars' VALUES live only in the per-app k8s Secret `<slug>-env`
+ * (never in Postgres), injected via envFrom. A blank value for an existing
+ * secret key keeps the current value (the editor never round-trips secrets).
+ * Config-only — re-reconciles and rolls the pods, never rebuilds.
+ */
+export async function setAppEnv(
+  spaceSlug: string,
+  appSlug: string,
+  opts: { plain: Record<string, string>; secrets: Record<string, string> },
+) {
+  const space = await getSpaceBySlug(spaceSlug);
+  if (!space) throw new Error("Space not found");
+  const app = await getApp(space.id, appSlug);
+  if (!app) throw new Error("App not found");
+
+  // Don't let a var collide with the attached-database injection.
+  if (app.attachedDbId && app.dbEnvVar) {
+    if (app.dbEnvVar in opts.plain || app.dbEnvVar in opts.secrets) {
+      throw new Error(
+        `${app.dbEnvVar} is set by the attached database — detach it or rename the variable.`,
+      );
+    }
+  }
+
+  const { core } = k8sClients();
+  const secretName = `${app.slug}-env`;
+  const secretKeys = Object.keys(opts.secrets);
+
+  if (secretKeys.length > 0) {
+    const existing = await core
+      .readNamespacedSecret({ name: secretName, namespace: space.namespace })
+      .catch(() => null);
+    const data: Record<string, string> = {};
+    for (const [k, v] of Object.entries(opts.secrets)) {
+      if (v === "" && existing?.data?.[k]) {
+        data[k] = existing.data[k]; // already base64 — keep existing
+      } else {
+        data[k] = Buffer.from(v, "utf8").toString("base64");
+      }
+    }
+    if (existing) {
+      existing.data = data;
+      await core.replaceNamespacedSecret({
+        name: secretName,
+        namespace: space.namespace,
+        body: existing,
+      });
+    } else {
+      await core.createNamespacedSecret({
+        namespace: space.namespace,
+        body: {
+          metadata: {
+            name: secretName,
+            namespace: space.namespace,
+            labels: managedLabels({ "korepush.io/app": app.slug }),
+          },
+          type: "Opaque",
+          data,
+        },
+      });
+    }
+  } else {
+    // No secrets left → remove the Secret entirely.
+    await core
+      .deleteNamespacedSecret({ name: secretName, namespace: space.namespace })
+      .catch(() => {});
+  }
+
+  await db
+    .update(schema.apps)
+    .set({ env: opts.plain, secretKeys, updatedAt: new Date() })
+    .where(eq(schema.apps.id, app.id));
+
+  if (app.image) {
+    await reconcileApp(space.namespace, space.slug, {
+      ...app,
+      env: opts.plain,
+      secretKeys,
+    });
+  }
+}
+
 /** Attach a database: inject its connection string into the app + redeploy. */
 export async function attachDatabase(
   spaceSlug: string,
@@ -522,6 +620,10 @@ export async function deleteApp(spaceSlug: string, slug: string) {
     apps.deleteNamespacedDeployment({ name: slug, namespace: space.namespace }),
     core.deleteNamespacedService({ name: slug, namespace: space.namespace }),
     net.deleteNamespacedIngress({ name: slug, namespace: space.namespace }),
+    core.deleteNamespacedSecret({
+      name: `${slug}-env`,
+      namespace: space.namespace,
+    }),
   ]);
   await db.delete(schema.apps).where(eq(schema.apps.id, app.id));
 }

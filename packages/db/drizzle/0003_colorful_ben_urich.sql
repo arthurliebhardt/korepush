@@ -1,0 +1,1 @@
+ALTER TABLE "apps" ADD COLUMN "secret_keys" jsonb DEFAULT '[]'::jsonb NOT NULL;

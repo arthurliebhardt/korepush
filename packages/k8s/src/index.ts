@@ -26,6 +26,7 @@ export {
   appsForRepoPush,
   attachDatabase,
   detachDatabase,
+  setAppEnv,
   listDeployments,
   latestBuildingDeployment,
 } from "./apps";

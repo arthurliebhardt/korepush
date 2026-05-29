@@ -13,6 +13,7 @@ import { AppMetrics } from "@/components/app-metrics";
 import { BuildLogs } from "@/components/build-logs";
 import { RedeployButton } from "@/components/redeploy-button";
 import { AttachDatabase } from "@/components/attach-database";
+import { EnvEditor } from "@/components/env-editor";
 
 export const dynamic = "force-dynamic";
 
@@ -69,13 +70,19 @@ export default async function AppPage({
         )}
       </div>
 
-      <div className="mb-5">
+      <div className="mb-5 space-y-5">
         <AttachDatabase
           spaceSlug={space.slug}
           appSlug={app.slug}
           databases={databases}
           attachedDbId={app.attachedDbId}
           dbEnvVar={app.dbEnvVar}
+        />
+        <EnvEditor
+          spaceSlug={space.slug}
+          appSlug={app.slug}
+          env={app.env}
+          secretKeys={app.secretKeys}
         />
       </div>
 
