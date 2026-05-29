@@ -91,6 +91,14 @@ for _ in $(seq 1 60); do
 done
 node_ready || die "Cluster did not become ready in time."
 
+# Install the CloudNativePG operator (Postgres databases in spaces). Use
+# --server-side: the CRDs are too large for client-side apply. Idempotent.
+log "Installing CloudNativePG operator…"
+CNPG_MANIFEST="${KOREPUSH_CNPG_MANIFEST:-https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.29/releases/cnpg-1.29.1.yaml}"
+"$KUBECTL" apply --server-side -f "$CNPG_MANIFEST" || die "Failed to install CloudNativePG."
+"$KUBECTL" -n cnpg-system rollout status deploy/cnpg-controller-manager --timeout=180s ||
+  err "CloudNativePG not ready yet; databases will work once its controller starts."
+
 # 3. Fetch the deploy manifest (prefer a local copy when run from a checkout).
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT

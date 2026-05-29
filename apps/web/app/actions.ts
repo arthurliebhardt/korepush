@@ -12,6 +12,8 @@ import {
   setControlPlaneDomain,
   getSpaceBySlug,
   getApp,
+  createDatabase,
+  deleteDatabase,
 } from "@korepush/k8s";
 import { mintCloneTokenForRepo } from "@/lib/github/app";
 
@@ -115,6 +117,34 @@ export async function redeployAction(
     );
     revalidatePath(`/spaces/${spaceSlug}/apps/${appSlug}`);
     return { ok: true, appSlug, deploymentId };
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  }
+}
+
+export async function createDatabaseAction(
+  spaceSlug: string,
+  name: string,
+): Promise<ActionResult> {
+  await requireUser();
+  try {
+    await createDatabase({ spaceSlug, name });
+    revalidatePath(`/spaces/${spaceSlug}`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  }
+}
+
+export async function deleteDatabaseAction(
+  spaceSlug: string,
+  slug: string,
+): Promise<ActionResult> {
+  await requireUser();
+  try {
+    await deleteDatabase(spaceSlug, slug);
+    revalidatePath(`/spaces/${spaceSlug}`);
+    return { ok: true };
   } catch (err) {
     return { ok: false, error: errorMessage(err) };
   }

@@ -1,10 +1,17 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/session";
-import { getSpaceBySlug, listApps } from "@korepush/k8s";
+import {
+  getSpaceBySlug,
+  listApps,
+  listDatabases,
+  getDatabaseInfo,
+} from "@korepush/k8s";
 import { listAllConnectedRepos } from "@/lib/github/app";
 import { StatusBadge } from "@/components/status-badge";
 import { CreateApp } from "@/components/create-app";
+import { CreateDatabase } from "@/components/create-database";
+import { DatabaseCard } from "@/components/database-card";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +32,24 @@ export default async function SpacePage({
     cloneUrl: r.cloneUrl,
     defaultBranch: r.defaultBranch,
   }));
+
+  const dbRows = await listDatabases(space.id);
+  const databases = await Promise.all(
+    dbRows.map(async (d) => {
+      const info = await getDatabaseInfo(space.namespace, d.slug).catch(() => ({
+        ready: false,
+        phase: "provisioning",
+        connectionUri: null,
+        host: null,
+      }));
+      const status = info.ready
+        ? "running"
+        : info.phase === "failed"
+          ? "failed"
+          : "provisioning";
+      return { ...d, status, info };
+    }),
+  );
 
   return (
     <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
@@ -70,6 +95,32 @@ export default async function SpacePage({
                 </div>
                 <span className="text-sm text-muted">:{app.port}</span>
               </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-10 mb-4 flex items-center justify-between">
+        <h2 className="text-sm font-medium text-muted">Databases</h2>
+        <CreateDatabase spaceSlug={space.slug} />
+      </div>
+
+      {databases.length === 0 ? (
+        <div className="card py-12 text-center text-sm text-muted">
+          No databases yet. Create a Postgres database for your apps.
+        </div>
+      ) : (
+        <ul className="space-y-3">
+          {databases.map((d) => (
+            <li key={d.id}>
+              <DatabaseCard
+                spaceSlug={space.slug}
+                slug={d.slug}
+                name={d.name}
+                status={d.status}
+                connectionUri={d.info.connectionUri}
+                host={d.info.host}
+              />
             </li>
           ))}
         </ul>

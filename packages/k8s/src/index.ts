@@ -41,4 +41,12 @@ export {
   setControlPlaneDomain,
 } from "./platform";
 export type { ControlPlaneInfo } from "./platform";
+export {
+  listDatabases,
+  getDatabase,
+  createDatabase,
+  getDatabaseInfo,
+  deleteDatabase,
+} from "./databases";
+export type { DatabaseInfo } from "./databases";
 export { slugify } from "./util";
