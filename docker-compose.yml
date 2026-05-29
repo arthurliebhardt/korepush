@@ -1,21 +1,21 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: kubepush-postgres
+    container_name: korepush-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: kubepush
-      POSTGRES_PASSWORD: kubepush
-      POSTGRES_DB: kubepush
+      POSTGRES_USER: korepush
+      POSTGRES_PASSWORD: korepush
+      POSTGRES_DB: korepush
     ports:
       - "5432:5432"
     volumes:
-      - kubepush_pgdata:/var/lib/postgresql/data
+      - korepush_pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U kubepush"]
+      test: ["CMD-SHELL", "pg_isready -U korepush"]
       interval: 5s
       timeout: 5s
       retries: 10
 
 volumes:
-  kubepush_pgdata:
+  korepush_pgdata:

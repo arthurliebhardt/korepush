@@ -1,5 +1,5 @@
 {
-  "name": "@kubepush/db",
+  "name": "@korepush/db",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -21,8 +21,8 @@
     "postgres": "^3.4.9"
   },
   "devDependencies": {
-    "@kubepush/eslint-config": "workspace:*",
-    "@kubepush/typescript-config": "workspace:*",
+    "@korepush/eslint-config": "workspace:*",
+    "@korepush/typescript-config": "workspace:*",
     "@types/node": "^22",
     "drizzle-kit": "^0.31.10",
     "esbuild": "^0.25",

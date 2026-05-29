@@ -1,30 +1,30 @@
 #!/usr/bin/env bash
 #
-# kubepush installer — turns a fresh Linux host into a single-node PaaS.
+# korepush installer — turns a fresh Linux host into a single-node PaaS.
 #
-#   curl -sfL https://get.kubepush.dev | sudo bash
+#   curl -sfL https://get.korepush.dev | sudo bash
 #
 # Environment overrides:
-#   KUBEPUSH_DOMAIN   Hostname the UI is served on (default: server public IP)
-#   KUBEPUSH_IMAGE    Control-plane image (default: ghcr.io/kubepush/kubepush:latest)
-#   KUBEPUSH_MANIFEST Path or URL to deploy manifest (default: bundled/remote)
+#   KOREPUSH_DOMAIN   Hostname the UI is served on (default: server public IP)
+#   KOREPUSH_IMAGE    Control-plane image (default: ghcr.io/korepush/korepush:latest)
+#   KOREPUSH_MANIFEST Path or URL to deploy manifest (default: bundled/remote)
 #
 set -euo pipefail
 
-KUBEPUSH_IMAGE="${KUBEPUSH_IMAGE:-ghcr.io/kubepush/kubepush:latest}"
-MANIFEST_URL="${KUBEPUSH_MANIFEST:-https://raw.githubusercontent.com/kubepush/kubepush/main/deploy/kubepush.yaml}"
+KOREPUSH_IMAGE="${KOREPUSH_IMAGE:-ghcr.io/korepush/korepush:latest}"
+MANIFEST_URL="${KOREPUSH_MANIFEST:-https://raw.githubusercontent.com/korepush/korepush/main/deploy/korepush.yaml}"
 KUBECTL="/usr/local/bin/kubectl"
 
-log()  { printf '\033[1;36m[kubepush]\033[0m %s\n' "$1"; }
-err()  { printf '\033[1;31m[kubepush]\033[0m %s\n' "$1" >&2; }
+log()  { printf '\033[1;36m[korepush]\033[0m %s\n' "$1"; }
+err()  { printf '\033[1;31m[korepush]\033[0m %s\n' "$1" >&2; }
 die()  { err "$1"; exit 1; }
 
 [ "$(id -u)" -eq 0 ] || die "Please run as root (e.g. with sudo)."
 
 # 1. Determine how the control plane will be reached.
-if [ -z "${KUBEPUSH_DOMAIN:-}" ]; then
-  KUBEPUSH_DOMAIN="$(curl -sf https://api.ipify.org || hostname -I | awk '{print $1}')"
-  log "No KUBEPUSH_DOMAIN set; using detected address: ${KUBEPUSH_DOMAIN}"
+if [ -z "${KOREPUSH_DOMAIN:-}" ]; then
+  KOREPUSH_DOMAIN="$(curl -sf https://api.ipify.org || hostname -I | awk '{print $1}')"
+  log "No KOREPUSH_DOMAIN set; using detected address: ${KOREPUSH_DOMAIN}"
 fi
 
 # Two modes:
@@ -34,19 +34,19 @@ fi
 #            is still used as the *app* base domain so deployed apps get a
 #            resolvable hostname (<app>.<space>.<ip>.sslip.io) until a real
 #            wildcard domain is configured (later, via Settings).
-case "$KUBEPUSH_DOMAIN" in
+case "$KOREPUSH_DOMAIN" in
   *[!0-9.]*)
     MODE="domain"
-    INGRESS_HOST="$KUBEPUSH_DOMAIN"
-    AUTH_URL="http://${KUBEPUSH_DOMAIN}"
-    APP_BASE_DOMAIN="$KUBEPUSH_DOMAIN"
+    INGRESS_HOST="$KOREPUSH_DOMAIN"
+    AUTH_URL="http://${KOREPUSH_DOMAIN}"
+    APP_BASE_DOMAIN="$KOREPUSH_DOMAIN"
     ;;
   *)
     MODE="ip"
     INGRESS_HOST=""
-    AUTH_URL="http://${KUBEPUSH_DOMAIN}"
-    APP_BASE_DOMAIN="${KUBEPUSH_DOMAIN}.sslip.io"
-    log "No domain given; control plane will be served on http://${KUBEPUSH_DOMAIN}"
+    AUTH_URL="http://${KOREPUSH_DOMAIN}"
+    APP_BASE_DOMAIN="${KOREPUSH_DOMAIN}.sslip.io"
+    log "No domain given; control plane will be served on http://${KOREPUSH_DOMAIN}"
     ;;
 esac
 TRUSTED_ORIGINS="$AUTH_URL"
@@ -77,10 +77,10 @@ node_ready || die "Cluster did not become ready in time."
 # 3. Fetch the deploy manifest (prefer a local copy when run from a checkout).
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
-MANIFEST="$WORK/kubepush.yaml"
-if [ -f "./deploy/kubepush.yaml" ]; then
-  log "Using bundled manifest ./deploy/kubepush.yaml"
-  cp ./deploy/kubepush.yaml "$MANIFEST"
+MANIFEST="$WORK/korepush.yaml"
+if [ -f "./deploy/korepush.yaml" ]; then
+  log "Using bundled manifest ./deploy/korepush.yaml"
+  cp ./deploy/korepush.yaml "$MANIFEST"
 else
   log "Downloading manifest…"
   curl -sfL "$MANIFEST_URL" -o "$MANIFEST" || die "Failed to download manifest."
@@ -94,7 +94,7 @@ AUTH_SECRET="$(gen)"
 DB_PASSWORD="$(gen)"
 
 sed -i \
-  -e "s|__KUBEPUSH_IMAGE__|${KUBEPUSH_IMAGE}|g" \
+  -e "s|__KOREPUSH_IMAGE__|${KOREPUSH_IMAGE}|g" \
   -e "s|__AUTH_URL__|${AUTH_URL}|g" \
   -e "s|__APP_BASE_DOMAIN__|${APP_BASE_DOMAIN}|g" \
   -e "s|__TRUSTED_ORIGINS__|${TRUSTED_ORIGINS}|g" \
@@ -103,20 +103,20 @@ sed -i \
   "$MANIFEST"
 
 # 5. Apply and wait for rollout.
-log "Deploying kubepush…"
+log "Deploying korepush…"
 "$KUBECTL" apply -f "$MANIFEST"
 
 # In domain mode, attach the host to the (otherwise catch-all) Ingress rule.
 if [ "$MODE" = "domain" ]; then
-  "$KUBECTL" -n kubepush-system patch ingress kubepush --type=json \
+  "$KUBECTL" -n korepush-system patch ingress korepush --type=json \
     -p "[{\"op\":\"add\",\"path\":\"/spec/rules/0/host\",\"value\":\"${INGRESS_HOST}\"}]"
 fi
 
-"$KUBECTL" -n kubepush-system rollout status deploy/postgres --timeout=180s
-"$KUBECTL" -n kubepush-system rollout status deploy/kubepush --timeout=300s
+"$KUBECTL" -n korepush-system rollout status deploy/postgres --timeout=180s
+"$KUBECTL" -n korepush-system rollout status deploy/korepush --timeout=300s
 
 log "Done!"
 echo
-echo "  kubepush is running. Open:  ${AUTH_URL}"
+echo "  korepush is running. Open:  ${AUTH_URL}"
 echo "  First visit will prompt you to create the admin account."
 echo

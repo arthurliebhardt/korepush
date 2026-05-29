@@ -11,7 +11,7 @@ export default async function LoginPage() {
     <main className="flex flex-1 items-center justify-center p-6">
       <div className="w-full max-w-sm space-y-6">
         <div className="text-center">
-          <span className="text-2xl font-bold tracking-tight">kubepush</span>
+          <span className="text-2xl font-bold tracking-tight">korepush</span>
         </div>
         <AuthForm mode="login" />
       </div>

@@ -1,5 +1,5 @@
 import { getSession } from "@/lib/session";
-import { getSpaceBySlug, k8sClients } from "@kubepush/k8s";
+import { getSpaceBySlug, k8sClients } from "@korepush/k8s";
 
 export const dynamic = "force-dynamic";
 

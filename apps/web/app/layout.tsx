@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "kubepush",
+  title: "korepush",
   description: "Self-hosted Vercel-like PaaS on Kubernetes",
 };
 

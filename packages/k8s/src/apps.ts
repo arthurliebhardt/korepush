@@ -1,10 +1,10 @@
 import { and, eq } from "drizzle-orm";
-import { db, schema } from "@kubepush/db";
+import { db, schema } from "@korepush/db";
 import { k8sClients, managedLabels } from "./client";
 import { getSpaceBySlug } from "./spaces";
 import { slugify } from "./util";
 
-const BASE_DOMAIN = process.env.KUBEPUSH_BASE_DOMAIN ?? "localhost";
+const BASE_DOMAIN = process.env.KOREPUSH_BASE_DOMAIN ?? "localhost";
 
 export async function listApps(spaceId: string) {
   return db
@@ -91,8 +91,8 @@ async function reconcileApp(
 ) {
   const { apps, core, net } = k8sClients();
   const labels = managedLabels({
-    "kubepush.io/space": spaceSlug,
-    "kubepush.io/app": app.slug,
+    "korepush.io/space": spaceSlug,
+    "korepush.io/app": app.slug,
     app: app.slug,
   });
   const env = Object.entries(app.env ?? {}).map(([name, value]) => ({

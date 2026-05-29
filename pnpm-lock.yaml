@@ -20,10 +20,10 @@ importers:
 
   apps/web:
     dependencies:
-      '@kubepush/db':
+      '@korepush/db':
         specifier: workspace:*
         version: link:../../packages/db
-      '@kubepush/k8s':
+      '@korepush/k8s':
         specifier: workspace:*
         version: link:../../packages/k8s
       better-auth:
@@ -42,7 +42,7 @@ importers:
         specifier: 19.2.4
         version: 19.2.4(react@19.2.4)
     devDependencies:
-      '@kubepush/typescript-config':
+      '@korepush/typescript-config':
         specifier: workspace:*
         version: link:../../packages/typescript-config
       '@tailwindcss/postcss':
@@ -79,10 +79,10 @@ importers:
         specifier: ^3.4.9
         version: 3.4.9
     devDependencies:
-      '@kubepush/eslint-config':
+      '@korepush/eslint-config':
         specifier: workspace:*
         version: link:../eslint-config
-      '@kubepush/typescript-config':
+      '@korepush/typescript-config':
         specifier: workspace:*
         version: link:../typescript-config
       '@types/node':
@@ -118,7 +118,7 @@ importers:
 
   packages/k8s:
     dependencies:
-      '@kubepush/db':
+      '@korepush/db':
         specifier: workspace:*
         version: link:../db
       '@kubernetes/client-node':
@@ -128,10 +128,10 @@ importers:
         specifier: ^0.45.2
         version: 0.45.2(@types/pg@8.20.0)(kysely@0.28.17)(postgres@3.4.9)
     devDependencies:
-      '@kubepush/eslint-config':
+      '@korepush/eslint-config':
         specifier: workspace:*
         version: link:../eslint-config
-      '@kubepush/typescript-config':
+      '@korepush/typescript-config':
         specifier: workspace:*
         version: link:../typescript-config
       '@types/node':

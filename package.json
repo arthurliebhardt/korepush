@@ -1,5 +1,5 @@
 {
-  "name": "kubepush",
+  "name": "korepush",
   "version": "0.1.0",
   "private": true,
   "packageManager": "pnpm@10.30.3",
@@ -13,10 +13,10 @@
     "lint": "turbo run lint",
     "check-types": "turbo run check-types",
     "db:up": "docker compose up -d postgres",
-    "db:generate": "pnpm --filter @kubepush/db db:generate",
-    "db:migrate": "pnpm --filter @kubepush/db db:migrate",
-    "db:push": "pnpm --filter @kubepush/db db:push",
-    "db:studio": "pnpm --filter @kubepush/db db:studio"
+    "db:generate": "pnpm --filter @korepush/db db:generate",
+    "db:migrate": "pnpm --filter @korepush/db db:migrate",
+    "db:push": "pnpm --filter @korepush/db db:push",
+    "db:studio": "pnpm --filter @korepush/db db:studio"
   },
   "devDependencies": {
     "prettier": "^3",

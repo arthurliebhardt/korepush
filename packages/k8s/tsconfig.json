@@ -1,5 +1,5 @@
 {
-  "extends": "@kubepush/typescript-config/base.json",
+  "extends": "@korepush/typescript-config/base.json",
   "compilerOptions": {
     "types": ["node"]
   },

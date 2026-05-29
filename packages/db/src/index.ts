@@ -6,7 +6,7 @@ type DB = PostgresJsDatabase<typeof schema>;
 
 // Reuse the client/db across hot reloads in dev.
 const globalForDb = globalThis as unknown as {
-  kubepushDb?: DB;
+  korepushDb?: DB;
 };
 
 function createDb(): DB {
@@ -25,7 +25,7 @@ function createDb(): DB {
  */
 export const db = new Proxy({} as DB, {
   get(_target, prop, receiver) {
-    const instance = (globalForDb.kubepushDb ??= createDb());
+    const instance = (globalForDb.korepushDb ??= createDb());
     const value = Reflect.get(instance, prop, receiver);
     return typeof value === "function" ? value.bind(instance) : value;
   },

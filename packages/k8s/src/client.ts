@@ -1,6 +1,6 @@
 import * as k8s from "@kubernetes/client-node";
 
-export const MANAGED_BY = "kubepush";
+export const MANAGED_BY = "korepush";
 
 let cached: ReturnType<typeof build> | null = null;
 
@@ -36,7 +36,7 @@ export async function clusterReachable(): Promise<boolean> {
   }
 }
 
-/** Standard labels stamped on every kubepush-managed object. */
+/** Standard labels stamped on every korepush-managed object. */
 export function managedLabels(extra: Record<string, string> = {}) {
   return { "app.kubernetes.io/managed-by": MANAGED_BY, ...extra };
 }

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/session";
-import { listSpaces, clusterReachable } from "@kubepush/k8s";
+import { listSpaces, clusterReachable } from "@korepush/k8s";
 import { StatusBadge } from "@/components/status-badge";
 import { CreateSpace } from "@/components/create-space";
 import { SignOutButton } from "@/components/sign-out-button";
@@ -18,7 +18,7 @@ export default async function DashboardPage() {
     <div className="flex flex-1 flex-col">
       <header className="flex items-center justify-between border-b border-border px-6 py-4">
         <div className="flex items-center gap-3">
-          <span className="text-lg font-bold tracking-tight">kubepush</span>
+          <span className="text-lg font-bold tracking-tight">korepush</span>
           <span
             className={`inline-flex items-center gap-1.5 text-xs ${
               clusterOk ? "text-success" : "text-danger"

@@ -20,7 +20,7 @@ const nextConfig: NextConfig = {
   // Trace files from the monorepo root so workspace packages are included.
   outputFileTracingRoot: repoRoot,
   // Transpile the source-only internal TS packages.
-  transpilePackages: ["@kubepush/db", "@kubepush/k8s"],
+  transpilePackages: ["@korepush/db", "@korepush/k8s"],
 };
 
 export default nextConfig;

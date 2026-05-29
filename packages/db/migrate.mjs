@@ -14,4 +14,4 @@ const db = drizzle(sql);
 const migrationsFolder = process.env.MIGRATIONS_DIR ?? "./drizzle";
 await migrate(db, { migrationsFolder });
 await sql.end();
-console.log("[kubepush] migrations complete");
+console.log("[korepush] migrations complete");

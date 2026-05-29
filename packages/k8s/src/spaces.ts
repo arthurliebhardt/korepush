@@ -1,5 +1,5 @@
 import { eq } from "drizzle-orm";
-import { db, schema } from "@kubepush/db";
+import { db, schema } from "@korepush/db";
 import { k8sClients, managedLabels } from "./client";
 import { slugify } from "./util";
 
@@ -47,7 +47,7 @@ export async function createSpace(name: string, ownerId: string) {
 
 async function provisionNamespace(namespace: string, slug: string) {
   const { core } = k8sClients();
-  const labels = managedLabels({ "kubepush.io/space": slug });
+  const labels = managedLabels({ "korepush.io/space": slug });
 
   await core.createNamespace({
     body: { metadata: { name: namespace, labels } },
@@ -57,7 +57,7 @@ async function provisionNamespace(namespace: string, slug: string) {
   await core.createNamespacedResourceQuota({
     namespace,
     body: {
-      metadata: { name: "kubepush-quota", labels },
+      metadata: { name: "korepush-quota", labels },
       spec: {
         hard: {
           "requests.cpu": "2",

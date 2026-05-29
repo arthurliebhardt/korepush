@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/session";
-import { getSpaceBySlug, getApp } from "@kubepush/k8s";
+import { getSpaceBySlug, getApp } from "@korepush/k8s";
 import { AppLive } from "@/components/app-live";
 
 export const dynamic = "force-dynamic";

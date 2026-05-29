@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/session";
-import { getControlPlaneInfo } from "@kubepush/k8s";
+import { getControlPlaneInfo } from "@korepush/k8s";
 import { DomainSettings } from "@/components/domain-settings";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +15,7 @@ export default async function SettingsPage() {
   } catch {
     unavailable =
       "Control-plane settings are only available on an in-cluster install " +
-      "(the kubepush-system resources aren't reachable from this dev server).";
+      "(the korepush-system resources aren't reachable from this dev server).";
   }
 
   return (

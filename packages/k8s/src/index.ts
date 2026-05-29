@@ -1,4 +1,4 @@
-// Public API for the kubepush Kubernetes layer.
+// Public API for the korepush Kubernetes layer.
 // NOTE: this package pulls in @kubernetes/client-node — import it only from
 // server contexts (server actions, route handlers, server components).
 

@@ -3,16 +3,16 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { nextCookies } from "better-auth/next-js";
 import { APIError } from "better-auth/api";
 import { count } from "drizzle-orm";
-import { db, schema } from "@kubepush/db";
+import { db, schema } from "@korepush/db";
 
 // Origins better-auth will accept requests from. Starts with the configured
 // base URL (the IP right after install) and grows as custom domains are added
-// via Settings (KUBEPUSH_TRUSTED_ORIGINS, comma-separated) — so adding a domain
+// via Settings (KOREPUSH_TRUSTED_ORIGINS, comma-separated) — so adding a domain
 // never locks you out of the IP, and vice versa.
 function trustedOrigins(): string[] {
   const origins = new Set<string>();
   if (process.env.BETTER_AUTH_URL) origins.add(process.env.BETTER_AUTH_URL);
-  for (const o of (process.env.KUBEPUSH_TRUSTED_ORIGINS ?? "").split(",")) {
+  for (const o of (process.env.KOREPUSH_TRUSTED_ORIGINS ?? "").split(",")) {
     const trimmed = o.trim();
     if (trimmed) origins.add(trimmed);
   }

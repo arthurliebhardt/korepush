@@ -1,10 +1,10 @@
 import { k8sClients } from "./client";
 
 // The control plane manages its own k8s objects (created by install.sh).
-const NS = "kubepush-system";
-const INGRESS = "kubepush";
-const SECRET = "kubepush-app";
-const DEPLOYMENT = "kubepush";
+const NS = "korepush-system";
+const INGRESS = "korepush";
+const SECRET = "korepush-app";
+const DEPLOYMENT = "korepush";
 
 const DOMAIN_RE = /^(?!-)[a-z0-9-]+(\.[a-z0-9-]+)+$/i;
 
@@ -23,7 +23,7 @@ export async function getControlPlaneInfo(): Promise<ControlPlaneInfo> {
     .filter((h): h is string => !!h);
 
   const sec = await core.readNamespacedSecret({ name: SECRET, namespace: NS });
-  const trustedOrigins = decodeSecretCsv(sec.data?.KUBEPUSH_TRUSTED_ORIGINS);
+  const trustedOrigins = decodeSecretCsv(sec.data?.KOREPUSH_TRUSTED_ORIGINS);
   return { hosts, trustedOrigins };
 }
 
@@ -63,13 +63,13 @@ export async function setControlPlaneDomain(domainRaw: string): Promise<void> {
 
   // 2. Trust the domain's origins + use it as the app base domain.
   const sec = await core.readNamespacedSecret({ name: SECRET, namespace: NS });
-  const origins = new Set(decodeSecretCsv(sec.data?.KUBEPUSH_TRUSTED_ORIGINS));
+  const origins = new Set(decodeSecretCsv(sec.data?.KOREPUSH_TRUSTED_ORIGINS));
   origins.add(`http://${domain}`);
   origins.add(`https://${domain}`);
   sec.data = {
     ...sec.data,
-    KUBEPUSH_TRUSTED_ORIGINS: encodeSecret([...origins].join(",")),
-    KUBEPUSH_BASE_DOMAIN: encodeSecret(domain),
+    KOREPUSH_TRUSTED_ORIGINS: encodeSecret([...origins].join(",")),
+    KOREPUSH_BASE_DOMAIN: encodeSecret(domain),
   };
   await core.replaceNamespacedSecret({ name: SECRET, namespace: NS, body: sec });
 
@@ -79,7 +79,7 @@ export async function setControlPlaneDomain(domainRaw: string): Promise<void> {
   tmpl.metadata = tmpl.metadata ?? {};
   tmpl.metadata.annotations = {
     ...tmpl.metadata.annotations,
-    "kubepush.io/restartedAt": new Date().toISOString(),
+    "korepush.io/restartedAt": new Date().toISOString(),
   };
   await apps.replaceNamespacedDeployment({ name: DEPLOYMENT, namespace: NS, body: dep });
 }

@@ -36,7 +36,7 @@ export function AuthForm({ mode }: { mode: "setup" | "login" }) {
     <form onSubmit={onSubmit} className="card w-full max-w-sm space-y-4">
       <div className="space-y-1">
         <h1 className="text-xl font-semibold">
-          {isSetup ? "Create your admin account" : "Sign in to kubepush"}
+          {isSetup ? "Create your admin account" : "Sign in to korepush"}
         </h1>
         <p className="text-sm text-muted">
           {isSetup

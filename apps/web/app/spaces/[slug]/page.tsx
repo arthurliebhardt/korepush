@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/session";
-import { getSpaceBySlug, listApps } from "@kubepush/k8s";
+import { getSpaceBySlug, listApps } from "@korepush/k8s";
 import { StatusBadge } from "@/components/status-badge";
 import { CreateApp } from "@/components/create-app";
 

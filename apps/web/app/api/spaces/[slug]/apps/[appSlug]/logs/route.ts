@@ -1,6 +1,6 @@
 import { PassThrough } from "node:stream";
 import { getSession } from "@/lib/session";
-import { getSpaceBySlug, getAppPodName, streamPodLogs } from "@kubepush/k8s";
+import { getSpaceBySlug, getAppPodName, streamPodLogs } from "@korepush/k8s";
 
 export const dynamic = "force-dynamic";
 

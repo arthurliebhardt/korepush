@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 #
-# Monorepo build for the kubepush control plane (apps/web).
+# Monorepo build for the korepush control plane (apps/web).
 # Build context is the repo root.
 
 FROM node:22-alpine AS base
@@ -15,14 +15,14 @@ RUN --mount=type=cache,id=pnpm,target=/root/.local/share/pnpm/store \
 # Next standalone output -> apps/web/.next/standalone/apps/web/server.js
 RUN pnpm build
 # Self-contained migrator (postgres + drizzle-orm inlined) -> packages/db/dist/migrate.mjs
-RUN pnpm --filter @kubepush/db run build:migrator
+RUN pnpm --filter @korepush/db run build:migrator
 
 # ---- runner: minimal image, no node_modules install ----
 FROM base AS runner
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
-RUN addgroup -S kubepush && adduser -S kubepush -G kubepush
+RUN addgroup -S korepush && adduser -S korepush -G korepush
 
 # Standalone server bundle (includes traced node_modules + compiled workspace pkgs).
 COPY --from=build /app/apps/web/.next/standalone ./
@@ -35,6 +35,6 @@ COPY --from=build /app/packages/db/drizzle ./drizzle
 COPY --from=build /app/scripts/entrypoint.sh ./entrypoint.sh
 RUN chmod +x ./entrypoint.sh
 
-USER kubepush
+USER korepush
 EXPOSE 3000
 CMD ["./entrypoint.sh"]

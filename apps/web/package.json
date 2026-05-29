@@ -10,8 +10,8 @@
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
-    "@kubepush/db": "workspace:*",
-    "@kubepush/k8s": "workspace:*",
+    "@korepush/db": "workspace:*",
+    "@korepush/k8s": "workspace:*",
     "better-auth": "^1.6.11",
     "drizzle-orm": "^0.45.2",
     "next": "16.2.6",
@@ -19,7 +19,7 @@
     "react-dom": "19.2.4"
   },
   "devDependencies": {
-    "@kubepush/typescript-config": "workspace:*",
+    "@korepush/typescript-config": "workspace:*",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^22",
     "@types/react": "^19",

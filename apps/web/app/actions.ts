@@ -8,7 +8,7 @@ import {
   createApp,
   deleteApp,
   setControlPlaneDomain,
-} from "@kubepush/k8s";
+} from "@korepush/k8s";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 

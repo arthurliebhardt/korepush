@@ -1,22 +1,22 @@
-# kubepush control-plane manifests.
+# korepush control-plane manifests.
 # Placeholders (__UPPER__) are substituted by install.sh before `kubectl apply`.
 apiVersion: v1
 kind: Namespace
 metadata:
-  name: kubepush-system
+  name: korepush-system
   labels:
-    app.kubernetes.io/managed-by: kubepush
+    app.kubernetes.io/managed-by: korepush
 ---
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: kubepush
-  namespace: kubepush-system
+  name: korepush
+  namespace: korepush-system
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: kubepush
+  name: korepush
 rules:
   - apiGroups: [""]
     resources:
@@ -43,33 +43,33 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: kubepush
+  name: korepush
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: kubepush
+  name: korepush
 subjects:
   - kind: ServiceAccount
-    name: kubepush
-    namespace: kubepush-system
+    name: korepush
+    namespace: korepush-system
 ---
 # ---- Platform database ----
 apiVersion: v1
 kind: Secret
 metadata:
-  name: kubepush-db
-  namespace: kubepush-system
+  name: korepush-db
+  namespace: korepush-system
 type: Opaque
 stringData:
-  POSTGRES_USER: kubepush
+  POSTGRES_USER: korepush
   POSTGRES_PASSWORD: __DB_PASSWORD__
-  POSTGRES_DB: kubepush
+  POSTGRES_DB: korepush
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: kubepush-pgdata
-  namespace: kubepush-system
+  name: korepush-pgdata
+  namespace: korepush-system
 spec:
   accessModes: ["ReadWriteOnce"]
   resources:
@@ -80,7 +80,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: postgres
-  namespace: kubepush-system
+  namespace: korepush-system
 spec:
   replicas: 1
   selector:
@@ -96,7 +96,7 @@ spec:
           image: postgres:16-alpine
           envFrom:
             - secretRef:
-                name: kubepush-db
+                name: korepush-db
           ports:
             - containerPort: 5432
           volumeMounts:
@@ -104,7 +104,7 @@ spec:
               mountPath: /var/lib/postgresql/data
           readinessProbe:
             exec:
-              command: ["pg_isready", "-U", "kubepush"]
+              command: ["pg_isready", "-U", "korepush"]
             initialDelaySeconds: 5
             periodSeconds: 5
           resources:
@@ -113,13 +113,13 @@ spec:
       volumes:
         - name: pgdata
           persistentVolumeClaim:
-            claimName: kubepush-pgdata
+            claimName: korepush-pgdata
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: postgres
-  namespace: kubepush-system
+  namespace: korepush-system
 spec:
   selector: { app: postgres }
   ports:
@@ -130,41 +130,41 @@ spec:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: kubepush-app
-  namespace: kubepush-system
+  name: korepush-app
+  namespace: korepush-system
 type: Opaque
 stringData:
-  DATABASE_URL: postgres://kubepush:__DB_PASSWORD__@postgres.kubepush-system.svc:5432/kubepush
+  DATABASE_URL: postgres://korepush:__DB_PASSWORD__@postgres.korepush-system.svc:5432/korepush
   BETTER_AUTH_SECRET: __AUTH_SECRET__
   # How the control-plane UI is reached (http://<ip> initially; a domain later).
   BETTER_AUTH_URL: __AUTH_URL__
   # Extra origins better-auth should trust (comma-separated); grows when a
   # custom domain is added via Settings so neither URL gets locked out.
-  KUBEPUSH_TRUSTED_ORIGINS: __TRUSTED_ORIGINS__
+  KOREPUSH_TRUSTED_ORIGINS: __TRUSTED_ORIGINS__
   # Base domain used to build per-app hostnames (<app>.<space>.<base>).
-  KUBEPUSH_BASE_DOMAIN: __APP_BASE_DOMAIN__
+  KOREPUSH_BASE_DOMAIN: __APP_BASE_DOMAIN__
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: kubepush
-  namespace: kubepush-system
-  labels: { app: kubepush }
+  name: korepush
+  namespace: korepush-system
+  labels: { app: korepush }
 spec:
   replicas: 1
   selector:
-    matchLabels: { app: kubepush }
+    matchLabels: { app: korepush }
   template:
     metadata:
-      labels: { app: kubepush }
+      labels: { app: korepush }
     spec:
-      serviceAccountName: kubepush
+      serviceAccountName: korepush
       containers:
-        - name: kubepush
-          image: __KUBEPUSH_IMAGE__
+        - name: korepush
+          image: __KOREPUSH_IMAGE__
           envFrom:
             - secretRef:
-                name: kubepush-app
+                name: korepush-app
           ports:
             - containerPort: 3000
           readinessProbe:
@@ -180,10 +180,10 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: kubepush
-  namespace: kubepush-system
+  name: korepush
+  namespace: korepush-system
 spec:
-  selector: { app: kubepush }
+  selector: { app: korepush }
   ports:
     - port: 80
       targetPort: 3000
@@ -191,8 +191,8 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: kubepush
-  namespace: kubepush-system
+  name: korepush
+  namespace: korepush-system
 spec:
   # Host-less (catch-all) so the control plane is reachable at the raw VPS IP
   # immediately after install. A host rule for a custom domain is ADDED later
@@ -204,6 +204,6 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: kubepush
+                name: korepush
                 port:
                   number: 80

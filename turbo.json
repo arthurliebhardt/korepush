@@ -7,7 +7,7 @@
     "BETTER_AUTH_URL",
     "KUBECONFIG",
     "KUBERNETES_SERVICE_HOST",
-    "KUBEPUSH_BASE_DOMAIN"
+    "KOREPUSH_BASE_DOMAIN"
   ],
   "tasks": {
     "build": {

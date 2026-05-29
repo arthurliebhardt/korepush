@@ -1,5 +1,5 @@
 {
-  "name": "@kubepush/k8s",
+  "name": "@korepush/k8s",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -11,13 +11,13 @@
     "check-types": "tsc --noEmit"
   },
   "dependencies": {
-    "@kubepush/db": "workspace:*",
+    "@korepush/db": "workspace:*",
     "@kubernetes/client-node": "^1.4.0",
     "drizzle-orm": "^0.45.2"
   },
   "devDependencies": {
-    "@kubepush/eslint-config": "workspace:*",
-    "@kubepush/typescript-config": "workspace:*",
+    "@korepush/eslint-config": "workspace:*",
+    "@korepush/typescript-config": "workspace:*",
     "@types/node": "^22",
     "eslint": "^9",
     "typescript": "^5"

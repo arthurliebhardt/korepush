@@ -1,5 +1,5 @@
 {
-  "extends": "@kubepush/typescript-config/nextjs.json",
+  "extends": "@korepush/typescript-config/nextjs.json",
   "compilerOptions": {
     "paths": {
       "@/*": ["./*"]
