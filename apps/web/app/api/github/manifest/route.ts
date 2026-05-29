@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { getSession } from "@/lib/session";
 
 export const runtime = "nodejs";
@@ -15,7 +15,16 @@ export async function GET() {
     return new Response("Forbidden", { status: 403 });
   }
 
-  const base = process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
+  // Use the ORIGIN the user is actually on (not BETTER_AUTH_URL), so the
+  // GitHub redirect lands back on the same origin and the session + state
+  // cookies are present. Otherwise (e.g. accessed via a tunnel) the callback
+  // would be cross-origin and the cookies would be missing.
+  const h = await headers();
+  const host = h.get("x-forwarded-host") ?? h.get("host");
+  const proto = h.get("x-forwarded-proto") ?? "http";
+  const base = host
+    ? `${proto}://${host}`
+    : (process.env.BETTER_AUTH_URL ?? "http://localhost:3000");
   const state = randomBytes(16).toString("hex");
   // GitHub App names are globally unique — give each instance a unique default
   // (the user can still rename it on GitHub's create page). Stored slug comes

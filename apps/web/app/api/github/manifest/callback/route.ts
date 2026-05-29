@@ -1,6 +1,5 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { getSession } from "@/lib/session";
 import { saveAppConfig } from "@/lib/github/config";
 import { resetGithubApp } from "@/lib/github/app";
 
@@ -8,15 +7,15 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const session = await getSession();
-  if (!session) return new Response("Forbidden", { status: 403 });
-
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
   const state = url.searchParams.get("state");
   const jar = await cookies();
   const cookieState = jar.get("gh_manifest_state")?.value;
-  if (!code || !state || state !== cookieState) {
+  // The state cookie was set behind the admin gate in /manifest, and is the
+  // CSRF proof for this GitHub redirect. (A session can't be reliably required
+  // here — cookies may differ across the cross-site redirect.)
+  if (!code || !state || !cookieState || state !== cookieState) {
     return new Response("Invalid or expired state", { status: 400 });
   }
   jar.delete("gh_manifest_state");
