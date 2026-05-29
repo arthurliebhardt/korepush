@@ -105,6 +105,11 @@ async function reconcileApp(
     name,
     value,
   }));
+  // Buildpack/Railpack (and most frameworks) bind to $PORT; inject it so a
+  // deployed app listens on its declared container port without extra config.
+  if (!env.some((e) => e.name === "PORT")) {
+    env.push({ name: "PORT", value: String(app.port) });
+  }
 
   const container = {
     name: app.slug,
