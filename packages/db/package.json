@@ -1,0 +1,32 @@
+{
+  "name": "@kubepush/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./schema": "./src/schema.ts"
+  },
+  "scripts": {
+    "lint": "eslint .",
+    "check-types": "tsc --noEmit",
+    "build:migrator": "esbuild migrate.mjs --bundle --platform=node --format=esm --outfile=dist/migrate.mjs",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:push": "drizzle-kit push",
+    "db:studio": "drizzle-kit studio"
+  },
+  "dependencies": {
+    "drizzle-orm": "^0.45.2",
+    "postgres": "^3.4.9"
+  },
+  "devDependencies": {
+    "@kubepush/eslint-config": "workspace:*",
+    "@kubepush/typescript-config": "workspace:*",
+    "@types/node": "^22",
+    "drizzle-kit": "^0.31.10",
+    "esbuild": "^0.25",
+    "eslint": "^9",
+    "typescript": "^5"
+  }
+}

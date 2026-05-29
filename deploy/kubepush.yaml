@@ -1,0 +1,209 @@
+# kubepush control-plane manifests.
+# Placeholders (__UPPER__) are substituted by install.sh before `kubectl apply`.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kubepush-system
+  labels:
+    app.kubernetes.io/managed-by: kubepush
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kubepush
+  namespace: kubepush-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: kubepush
+rules:
+  - apiGroups: [""]
+    resources:
+      - namespaces
+      - resourcequotas
+      - services
+      - pods
+      - pods/log
+      - secrets
+      - configmaps
+      - persistentvolumeclaims
+      - events
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets", "statefulsets"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["ingresses"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: kubepush
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: kubepush
+subjects:
+  - kind: ServiceAccount
+    name: kubepush
+    namespace: kubepush-system
+---
+# ---- Platform database ----
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kubepush-db
+  namespace: kubepush-system
+type: Opaque
+stringData:
+  POSTGRES_USER: kubepush
+  POSTGRES_PASSWORD: __DB_PASSWORD__
+  POSTGRES_DB: kubepush
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: kubepush-pgdata
+  namespace: kubepush-system
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 5Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: kubepush-system
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres }
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          envFrom:
+            - secretRef:
+                name: kubepush-db
+          ports:
+            - containerPort: 5432
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "kubepush"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits: { cpu: "1", memory: "1Gi" }
+      volumes:
+        - name: pgdata
+          persistentVolumeClaim:
+            claimName: kubepush-pgdata
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: kubepush-system
+spec:
+  selector: { app: postgres }
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+# ---- Control plane ----
+apiVersion: v1
+kind: Secret
+metadata:
+  name: kubepush-app
+  namespace: kubepush-system
+type: Opaque
+stringData:
+  DATABASE_URL: postgres://kubepush:__DB_PASSWORD__@postgres.kubepush-system.svc:5432/kubepush
+  BETTER_AUTH_SECRET: __AUTH_SECRET__
+  # How the control-plane UI is reached (http://<ip> initially; a domain later).
+  BETTER_AUTH_URL: __AUTH_URL__
+  # Extra origins better-auth should trust (comma-separated); grows when a
+  # custom domain is added via Settings so neither URL gets locked out.
+  KUBEPUSH_TRUSTED_ORIGINS: __TRUSTED_ORIGINS__
+  # Base domain used to build per-app hostnames (<app>.<space>.<base>).
+  KUBEPUSH_BASE_DOMAIN: __APP_BASE_DOMAIN__
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kubepush
+  namespace: kubepush-system
+  labels: { app: kubepush }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: kubepush }
+  template:
+    metadata:
+      labels: { app: kubepush }
+    spec:
+      serviceAccountName: kubepush
+      containers:
+        - name: kubepush
+          image: __KUBEPUSH_IMAGE__
+          envFrom:
+            - secretRef:
+                name: kubepush-app
+          ports:
+            - containerPort: 3000
+          readinessProbe:
+            httpGet:
+              path: /login
+              port: 3000
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          resources:
+            requests: { cpu: "100m", memory: "256Mi" }
+            limits: { cpu: "1", memory: "1Gi" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kubepush
+  namespace: kubepush-system
+spec:
+  selector: { app: kubepush }
+  ports:
+    - port: 80
+      targetPort: 3000
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kubepush
+  namespace: kubepush-system
+spec:
+  # Host-less (catch-all) so the control plane is reachable at the raw VPS IP
+  # immediately after install. A host rule for a custom domain is ADDED later
+  # via Settings (keeping this catch-all, so the IP keeps working too).
+  rules:
+    - http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kubepush
+                port:
+                  number: 80
