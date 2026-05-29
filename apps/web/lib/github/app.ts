@@ -93,6 +93,25 @@ export async function listInstallations() {
   return db.select().from(schema.githubInstallations);
 }
 
+/** All repos accessible across every installation (deduped by full name). */
+export async function listAllConnectedRepos(): Promise<InstallationRepo[]> {
+  const insts = await listInstallations();
+  const seen = new Set<string>();
+  const out: InstallationRepo[] = [];
+  for (const inst of insts) {
+    const repos = await listInstallationRepos(inst.installationId).catch(
+      () => [],
+    );
+    for (const r of repos) {
+      if (!seen.has(r.fullName)) {
+        seen.add(r.fullName);
+        out.push(r);
+      }
+    }
+  }
+  return out.sort((a, b) => a.fullName.localeCompare(b.fullName));
+}
+
 function ownerOf(repoUrl: string): string | null {
   const m = repoUrl.match(/github\.com[/:]([^/]+)\/[^/]+/i);
   return m ? m[1] : null;

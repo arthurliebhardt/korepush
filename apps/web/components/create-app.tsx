@@ -5,8 +5,15 @@ import { useRouter } from "next/navigation";
 import { createAppAction, createGitAppAction } from "@/app/actions";
 
 type Mode = "image" | "git";
+type Repo = { fullName: string; cloneUrl: string; defaultBranch: string };
 
-export function CreateApp({ spaceSlug }: { spaceSlug: string }) {
+export function CreateApp({
+  spaceSlug,
+  repos = [],
+}: {
+  spaceSlug: string;
+  repos?: Repo[];
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<Mode>("git");
@@ -15,12 +22,26 @@ export function CreateApp({ spaceSlug }: { spaceSlug: string }) {
   const [repoUrl, setRepoUrl] = useState("");
   const [gitRef, setGitRef] = useState("main");
   const [port, setPort] = useState("3000");
+  // Use the repo picker when repos are connected; allow falling back to a URL.
+  const [manualUrl, setManualUrl] = useState(repos.length === 0);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+
+  function pickRepo(fullName: string) {
+    const r = repos.find((x) => x.fullName === fullName);
+    if (!r) return;
+    setRepoUrl(r.cloneUrl);
+    setGitRef(r.defaultBranch || "main");
+    if (!name) setName(r.fullName.split("/").pop() ?? "");
+  }
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    if (mode === "git" && !repoUrl) {
+      setError("Pick a repository or enter a URL.");
+      return;
+    }
     startTransition(async () => {
       if (mode === "image") {
         const res = await createAppAction({
@@ -68,6 +89,8 @@ export function CreateApp({ spaceSlug }: { spaceSlug: string }) {
     </button>
   );
 
+  const usePicker = mode === "git" && repos.length > 0 && !manualUrl;
+
   return (
     <form onSubmit={submit} className="card space-y-3">
       <div className="flex gap-1 rounded-lg border border-border p-1 w-fit">
@@ -79,7 +102,6 @@ export function CreateApp({ spaceSlug }: { spaceSlug: string }) {
         <div>
           <label className="label">Name</label>
           <input
-            autoFocus
             className="input"
             placeholder="web"
             value={name}
@@ -87,6 +109,7 @@ export function CreateApp({ spaceSlug }: { spaceSlug: string }) {
             required
           />
         </div>
+
         {mode === "image" ? (
           <div className="sm:col-span-2">
             <label className="label">Image</label>
@@ -98,6 +121,36 @@ export function CreateApp({ spaceSlug }: { spaceSlug: string }) {
               required
             />
           </div>
+        ) : usePicker ? (
+          <>
+            <div>
+              <label className="label">Repository</label>
+              <select
+                autoFocus
+                className="input"
+                defaultValue=""
+                onChange={(e) => pickRepo(e.target.value)}
+              >
+                <option value="" disabled>
+                  Select a repo…
+                </option>
+                {repos.map((r) => (
+                  <option key={r.fullName} value={r.fullName}>
+                    {r.fullName}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="label">Branch</label>
+              <input
+                className="input"
+                placeholder="main"
+                value={gitRef}
+                onChange={(e) => setGitRef(e.target.value)}
+              />
+            </div>
+          </>
         ) : (
           <>
             <div>
@@ -121,6 +174,7 @@ export function CreateApp({ spaceSlug }: { spaceSlug: string }) {
             </div>
           </>
         )}
+
         <div>
           <label className="label">Container port</label>
           <input
@@ -131,6 +185,19 @@ export function CreateApp({ spaceSlug }: { spaceSlug: string }) {
           />
         </div>
       </div>
+
+      {mode === "git" && repos.length > 0 && (
+        <button
+          type="button"
+          className="text-xs text-muted underline hover:text-foreground"
+          onClick={() => {
+            setManualUrl(!manualUrl);
+            setRepoUrl("");
+          }}
+        >
+          {manualUrl ? "Pick from connected GitHub repos" : "Enter a URL instead"}
+        </button>
+      )}
 
       {mode === "git" && (
         <p className="text-xs text-muted">

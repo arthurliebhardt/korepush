@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireUser } from "@/lib/session";
 import { getSpaceBySlug, listApps } from "@korepush/k8s";
+import { listAllConnectedRepos } from "@/lib/github/app";
 import { StatusBadge } from "@/components/status-badge";
 import { CreateApp } from "@/components/create-app";
 
@@ -18,6 +19,12 @@ export default async function SpacePage({
   if (!space) notFound();
 
   const apps = await listApps(space.id);
+  // Connected GitHub repos for the deploy picker (VM can reach GitHub outbound).
+  const repos = (await listAllConnectedRepos().catch(() => [])).map((r) => ({
+    fullName: r.fullName,
+    cloneUrl: r.cloneUrl,
+    defaultBranch: r.defaultBranch,
+  }));
 
   return (
     <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
@@ -37,7 +44,7 @@ export default async function SpacePage({
 
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-sm font-medium text-muted">Apps</h2>
-        <CreateApp spaceSlug={space.slug} />
+        <CreateApp spaceSlug={space.slug} repos={repos} />
       </div>
 
       {apps.length === 0 ? (
