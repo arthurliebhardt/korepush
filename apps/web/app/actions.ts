@@ -10,7 +10,10 @@ import {
   createGitApp,
   triggerGitBuild,
   setControlPlaneDomain,
+  getSpaceBySlug,
+  getApp,
 } from "@korepush/k8s";
+import { mintCloneTokenForRepo } from "@/lib/github/app";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 export type BuildActionResult =
@@ -79,7 +82,13 @@ export async function createGitAppAction(input: {
   await requireUser();
   try {
     const app = await createGitApp(input);
-    const { deploymentId } = await triggerGitBuild(input.spaceSlug, app.slug);
+    const token = await mintCloneTokenForRepo(input.repoUrl).catch(() => null);
+    const { deploymentId } = await triggerGitBuild(
+      input.spaceSlug,
+      app.slug,
+      "manual",
+      token ?? undefined,
+    );
     revalidatePath(`/spaces/${input.spaceSlug}`);
     return { ok: true, appSlug: app.slug, deploymentId };
   } catch (err) {
@@ -93,7 +102,17 @@ export async function redeployAction(
 ): Promise<BuildActionResult> {
   await requireUser();
   try {
-    const { deploymentId } = await triggerGitBuild(spaceSlug, appSlug, "manual");
+    const space = await getSpaceBySlug(spaceSlug);
+    const app = space ? await getApp(space.id, appSlug) : null;
+    const token = app?.repoUrl
+      ? await mintCloneTokenForRepo(app.repoUrl).catch(() => null)
+      : null;
+    const { deploymentId } = await triggerGitBuild(
+      spaceSlug,
+      appSlug,
+      "manual",
+      token ?? undefined,
+    );
     revalidatePath(`/spaces/${spaceSlug}/apps/${appSlug}`);
     return { ok: true, appSlug, deploymentId };
   } catch (err) {

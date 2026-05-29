@@ -23,6 +23,7 @@ export {
   createGitApp,
   triggerGitBuild,
   finalizeBuild,
+  appsForRepoPush,
   listDeployments,
   latestBuildingDeployment,
 } from "./apps";

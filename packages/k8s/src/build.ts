@@ -24,10 +24,16 @@ export function buildJobName(appSlug: string, tag: string) {
 
 const BUILD_SCRIPT = `set -e
 echo "── cloning $REPO_URL ($GIT_REF) ──"
-if [ -n "$GIT_REF" ]; then
-  git clone --depth 1 --branch "$GIT_REF" "$REPO_URL" /workspace/repo
+# Private repos: inject a short-lived installation token (GIT_TOKEN).
+if [ -n "$GIT_TOKEN" ]; then
+  CLONE="https://x-access-token:$GIT_TOKEN@\${REPO_URL#https://}"
 else
-  git clone --depth 1 "$REPO_URL" /workspace/repo
+  CLONE="$REPO_URL"
+fi
+if [ -n "$GIT_REF" ]; then
+  git clone --depth 1 --branch "$GIT_REF" "$CLONE" /workspace/repo
+else
+  git clone --depth 1 "$CLONE" /workspace/repo
 fi
 echo "── waiting for buildkitd ──"
 for i in $(seq 1 60); do [ -S /run/buildkit/buildkitd.sock ] && break; sleep 1; done
@@ -62,6 +68,8 @@ type CreateBuildJobInput = {
   repoUrl: string;
   gitRef: string;
   image: string;
+  /** Short-lived token for cloning a private repo (omit for public). */
+  cloneToken?: string;
 };
 
 export async function createBuildJob(input: CreateBuildJobInput) {
@@ -104,6 +112,9 @@ export async function createBuildJob(input: CreateBuildJobInput) {
                   { name: "REPO_URL", value: input.repoUrl },
                   { name: "GIT_REF", value: input.gitRef },
                   { name: "IMAGE", value: input.image },
+                  ...(input.cloneToken
+                    ? [{ name: "GIT_TOKEN", value: input.cloneToken }]
+                    : []),
                 ],
                 volumeMounts: [
                   { name: "buildkit", mountPath: "/run/buildkit" },

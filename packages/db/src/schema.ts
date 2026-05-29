@@ -162,6 +162,20 @@ export const deployments = pgTable("deployments", {
   finishedAt: timestamp("finished_at"),
 });
 
+// Singleton config for the platform's GitHub App (created via the manifest
+// flow). Secret fields are stored encrypted (see apps/web/lib/github/config).
+export const githubApp = pgTable("github_app", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  appId: text("app_id").notNull(),
+  slug: text("slug").notNull(),
+  privateKey: text("private_key").notNull(),
+  webhookSecret: text("webhook_secret").notNull(),
+  clientId: text("client_id"),
+  clientSecret: text("client_secret"),
+  htmlUrl: text("html_url"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const githubInstallations = pgTable("github_installations", {
   id: uuid("id").primaryKey().defaultRandom(),
   installationId: text("installation_id").notNull().unique(),

@@ -246,6 +246,7 @@ export async function triggerGitBuild(
   spaceSlug: string,
   appSlug: string,
   trigger = "manual",
+  cloneToken?: string,
 ) {
   const space = await getSpaceBySlug(spaceSlug);
   if (!space) throw new Error("Space not found");
@@ -275,6 +276,7 @@ export async function triggerGitBuild(
       repoUrl: app.repoUrl,
       gitRef: app.gitRef || "main",
       image,
+      cloneToken,
     });
     await db
       .update(schema.apps)
@@ -343,6 +345,37 @@ export async function finalizeBuild(deploymentId: string): Promise<string> {
     return "failed";
   }
   return dep.status;
+}
+
+/** Git apps subscribed to a repo+branch (for push-to-deploy webhooks). */
+export async function appsForRepoPush(repoFullName: string, branch: string) {
+  const rows = await db
+    .select({
+      appSlug: schema.apps.slug,
+      spaceSlug: schema.spaces.slug,
+      repoUrl: schema.apps.repoUrl,
+      gitRef: schema.apps.gitRef,
+    })
+    .from(schema.apps)
+    .innerJoin(schema.spaces, eq(schema.apps.spaceId, schema.spaces.id))
+    .where(eq(schema.apps.source, "git"));
+
+  const norm = (u: string) =>
+    u
+      .replace(/^https?:\/\/github\.com\//i, "")
+      .replace(/^git@github\.com:/i, "")
+      .replace(/\.git$/i, "")
+      .toLowerCase();
+  const target = repoFullName.toLowerCase();
+
+  return rows
+    .filter(
+      (r) =>
+        r.repoUrl &&
+        norm(r.repoUrl) === target &&
+        (r.gitRef || "main") === branch,
+    )
+    .map((r) => ({ spaceSlug: r.spaceSlug, appSlug: r.appSlug }));
 }
 
 export async function listDeployments(appId: string) {
