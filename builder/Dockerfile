@@ -1,15 +1,24 @@
 # syntax=docker/dockerfile:1
 #
-# korepush build agent: buildctl + buildkitd (from moby/buildkit) + git + the
-# Railpack CLI. Used as the build container in korepush build Jobs.
-FROM moby/buildkit:v0.27.0
+# korepush build agent: buildctl (from moby/buildkit) + git + the Railpack CLI.
+# Used as the build container in korepush build Jobs (the buildkitd sidecar is a
+# separate moby/buildkit container).
+#
+# Debian (glibc) base: Railpack's `prepare` downloads `mise` to provision build
+# toolchains, and mise ships glibc binaries — they fail to exec on alpine/musl.
+# The railpack + buildctl binaries are static and run fine on glibc.
+FROM moby/buildkit:v0.27.0 AS bk
 
+FROM debian:bookworm-slim
 ARG TARGETARCH
 ARG RAILPACK_VERSION=v0.23.0
 
-RUN apk add --no-cache git curl ca-certificates tar
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends git curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
-# Railpack publishes static musl Linux binaries, so they run on alpine.
+COPY --from=bk /usr/bin/buildctl /usr/local/bin/buildctl
+
 RUN set -eux; \
     case "$TARGETARCH" in \
       amd64) rp_arch=x86_64 ;; \
