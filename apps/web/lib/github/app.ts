@@ -154,7 +154,7 @@ async function octokitForOwner(owner: string) {
 }
 
 /** Read a file from a GitHub repo (installation-authed if private, else public). */
-async function fetchRepoFile(
+export async function fetchRepoFile(
   repoUrl: string,
   ref: string,
   path: string,

@@ -20,6 +20,7 @@ import {
   rollbackDeployment,
 } from "@korepush/k8s";
 import { mintCloneTokenForRepo, detectPort } from "@/lib/github/app";
+import { detectProject } from "@/lib/github/detect";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 export type BuildActionResult =
@@ -78,15 +79,31 @@ export async function deleteAppAction(
   }
 }
 
+export async function detectProjectAction(repoUrl: string, gitRef: string) {
+  await requireUser();
+  const detection = await detectProject(repoUrl, gitRef || "main").catch(
+    () => null,
+  );
+  return { ok: !!detection, detection };
+}
+
 export async function createGitAppAction(input: {
   spaceSlug: string;
   name: string;
   repoUrl: string;
   gitRef?: string;
   port?: number;
+  env?: EnvVarInput[];
+  installCmd?: string;
+  buildCmd?: string;
+  startCmd?: string;
 }): Promise<BuildActionResult> {
   await requireUser();
   try {
+    // Validate env up front so we never leave an orphan app on a bad var.
+    const split = input.env?.length ? splitEnvVars(input.env) : null;
+    if (split && "error" in split) return { ok: false, error: split.error };
+
     // No port given → auto-detect from the repo (Dockerfile EXPOSE / start
     // script), falling back to 3000. korepush injects PORT=<port>, so a
     // $PORT-honoring app conforms regardless.
@@ -96,12 +113,24 @@ export async function createGitAppAction(input: {
         () => null,
       )) ??
       3000;
-    const app = await createGitApp({ ...input, port });
+    const app = await createGitApp({
+      spaceSlug: input.spaceSlug,
+      name: input.name,
+      repoUrl: input.repoUrl,
+      gitRef: input.gitRef,
+      port,
+      installCmd: input.installCmd,
+      buildCmd: input.buildCmd,
+      startCmd: input.startCmd,
+    });
+    // Persist env (incl. secrets) before the build; reconcileApp injects them
+    // when the build finalizes.
+    if (split) await setAppEnv(input.spaceSlug, app.slug, split);
     const token = await mintCloneTokenForRepo(input.repoUrl).catch(() => null);
     const { deploymentId } = await triggerGitBuild(
       input.spaceSlug,
       app.slug,
-      "manual",
+      "import",
       token ?? undefined,
     );
     revalidatePath(`/spaces/${input.spaceSlug}`);
@@ -209,12 +238,12 @@ export async function rollbackAction(
 
 export type EnvVarInput = { key: string; value: string; secret: boolean };
 
-export async function setAppEnvAction(
-  spaceSlug: string,
-  appSlug: string,
+/** Validate + split env rows into plain/secret maps, or return an error. */
+function splitEnvVars(
   vars: EnvVarInput[],
-): Promise<ActionResult> {
-  await requireUser();
+):
+  | { plain: Record<string, string>; secrets: Record<string, string> }
+  | { error: string } {
   const KEY_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
   const plain: Record<string, string> = {};
   const secrets: Record<string, string> = {};
@@ -222,21 +251,26 @@ export async function setAppEnvAction(
   for (const v of vars) {
     const key = v.key.trim();
     if (!key) continue;
-    if (!KEY_RE.test(key)) {
-      return { ok: false, error: `Invalid variable name: "${key}"` };
-    }
-    if (key === "PORT") {
-      return { ok: false, error: "PORT is managed by korepush." };
-    }
-    if (seen.has(key)) {
-      return { ok: false, error: `Duplicate variable: ${key}` };
-    }
+    if (!KEY_RE.test(key)) return { error: `Invalid variable name: "${key}"` };
+    if (key === "PORT") return { error: "PORT is managed by korepush." };
+    if (seen.has(key)) return { error: `Duplicate variable: ${key}` };
     seen.add(key);
     if (v.secret) secrets[key] = v.value;
     else plain[key] = v.value;
   }
+  return { plain, secrets };
+}
+
+export async function setAppEnvAction(
+  spaceSlug: string,
+  appSlug: string,
+  vars: EnvVarInput[],
+): Promise<ActionResult> {
+  await requireUser();
+  const split = splitEnvVars(vars);
+  if ("error" in split) return { ok: false, error: split.error };
   try {
-    await setAppEnv(spaceSlug, appSlug, { plain, secrets });
+    await setAppEnv(spaceSlug, appSlug, split);
     revalidatePath(`/spaces/${spaceSlug}/apps/${appSlug}`);
     return { ok: true };
   } catch (err) {

@@ -122,6 +122,11 @@ export const apps = pgTable("apps", {
   image: text("image"),
   repoUrl: text("repo_url"),
   gitRef: text("git_ref").default("main"),
+  // Optional Railpack build overrides (null = let Railpack auto-detect).
+  installCmd: text("install_cmd"),
+  buildCmd: text("build_cmd"),
+  startCmd: text("start_cmd"),
+  rootDir: text("root_dir"),
   port: integer("port").default(3000).notNull(),
   replicas: integer("replicas").default(1).notNull(),
   // Plain (non-secret) env vars, inlined into the Deployment pod spec.

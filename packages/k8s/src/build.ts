@@ -70,6 +70,10 @@ type CreateBuildJobInput = {
   image: string;
   /** Short-lived token for cloning a private repo (omit for public). */
   cloneToken?: string;
+  /** Optional Railpack command overrides (ignored when a Dockerfile is used). */
+  installCmd?: string | null;
+  buildCmd?: string | null;
+  startCmd?: string | null;
 };
 
 export async function createBuildJob(input: CreateBuildJobInput) {
@@ -114,6 +118,17 @@ export async function createBuildJob(input: CreateBuildJobInput) {
                   { name: "IMAGE", value: input.image },
                   ...(input.cloneToken
                     ? [{ name: "GIT_TOKEN", value: input.cloneToken }]
+                    : []),
+                  // Railpack reads these during `railpack prepare` (no-op for a
+                  // Dockerfile build, which doesn't invoke Railpack).
+                  ...(input.installCmd
+                    ? [{ name: "RAILPACK_INSTALL_CMD", value: input.installCmd }]
+                    : []),
+                  ...(input.buildCmd
+                    ? [{ name: "RAILPACK_BUILD_CMD", value: input.buildCmd }]
+                    : []),
+                  ...(input.startCmd
+                    ? [{ name: "RAILPACK_START_CMD", value: input.startCmd }]
                     : []),
                 ],
                 volumeMounts: [

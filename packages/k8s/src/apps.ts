@@ -286,6 +286,9 @@ export type CreateGitAppInput = {
   gitRef?: string;
   port?: number;
   env?: Record<string, string>;
+  installCmd?: string | null;
+  buildCmd?: string | null;
+  startCmd?: string | null;
 };
 
 export async function createGitApp(input: CreateGitAppInput) {
@@ -305,6 +308,9 @@ export async function createGitApp(input: CreateGitAppInput) {
       gitRef: input.gitRef || "main",
       port: input.port ?? 3000,
       env: input.env ?? {},
+      installCmd: input.installCmd || null,
+      buildCmd: input.buildCmd || null,
+      startCmd: input.startCmd || null,
       status: "pending",
     })
     .returning();
@@ -347,6 +353,9 @@ export async function triggerGitBuild(
       gitRef: app.gitRef || "main",
       image,
       cloneToken,
+      installCmd: app.installCmd,
+      buildCmd: app.buildCmd,
+      startCmd: app.startCmd,
     });
     await db
       .update(schema.apps)
