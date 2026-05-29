@@ -41,18 +41,22 @@ case "$KOREPUSH_DOMAIN" in
   *[!0-9.]*)
     MODE="domain"
     INGRESS_HOST="$KOREPUSH_DOMAIN"
-    AUTH_URL="http://${KOREPUSH_DOMAIN}"
+    # Domain mode: serve over HTTPS. cert-manager provisions a Let's Encrypt
+    # cert for the Ingress once DNS resolves here and :80 is reachable (~1 min);
+    # both http+https origins are trusted so there's no window with no access.
+    AUTH_URL="https://${KOREPUSH_DOMAIN}"
     APP_BASE_DOMAIN="$KOREPUSH_DOMAIN"
+    TRUSTED_ORIGINS="https://${KOREPUSH_DOMAIN},http://${KOREPUSH_DOMAIN}"
     ;;
   *)
     MODE="ip"
     INGRESS_HOST=""
     AUTH_URL="http://${KOREPUSH_DOMAIN}"
     APP_BASE_DOMAIN="${KOREPUSH_DOMAIN}.sslip.io"
+    TRUSTED_ORIGINS="$AUTH_URL"
     log "No domain given; control plane will be served on http://${KOREPUSH_DOMAIN}"
     ;;
 esac
-TRUSTED_ORIGINS="$AUTH_URL"
 
 # 2. Configure containerd to pull from the in-cluster registry. Builds push to
 #    registry.korepush-system.svc.cluster.local:5000 (svc DNS, in-cluster); the
@@ -200,10 +204,20 @@ sed -i \
 log "Deploying korepush…"
 "$KUBECTL" apply -f "$MANIFEST"
 
-# In domain mode, attach the host to the (otherwise catch-all) Ingress rule.
+# In domain mode, attach the host to the (otherwise catch-all) Ingress rule and
+# — unless cert-manager was skipped — annotate it for Let's Encrypt + add a TLS
+# block so HTTPS provisions automatically once DNS points here.
 if [ "$MODE" = "domain" ]; then
-  "$KUBECTL" -n korepush-system patch ingress korepush --type=json \
-    -p "[{\"op\":\"add\",\"path\":\"/spec/rules/0/host\",\"value\":\"${INGRESS_HOST}\"}]"
+  if [ -z "${KOREPUSH_SKIP_CERTMANAGER:-}" ]; then
+    "$KUBECTL" -n korepush-system patch ingress korepush --type=json -p "[
+      {\"op\":\"add\",\"path\":\"/spec/rules/0/host\",\"value\":\"${INGRESS_HOST}\"},
+      {\"op\":\"add\",\"path\":\"/metadata/annotations\",\"value\":{\"cert-manager.io/cluster-issuer\":\"letsencrypt-prod\"}},
+      {\"op\":\"add\",\"path\":\"/spec/tls\",\"value\":[{\"hosts\":[\"${INGRESS_HOST}\"],\"secretName\":\"korepush-panel-tls\"}]}
+    ]"
+  else
+    "$KUBECTL" -n korepush-system patch ingress korepush --type=json \
+      -p "[{\"op\":\"add\",\"path\":\"/spec/rules/0/host\",\"value\":\"${INGRESS_HOST}\"}]"
+  fi
 fi
 
 # Generous timeouts: a cold k3s pulls system images (storage, ingress) and the
@@ -215,6 +229,13 @@ log "Done!"
 echo
 echo "  korepush is running. Open:  ${AUTH_URL}"
 echo "  First visit will prompt you to create the admin account."
+if [ "$MODE" = "domain" ] && [ -z "${KOREPUSH_SKIP_CERTMANAGER:-}" ]; then
+  echo
+  echo "  HTTPS: a Let's Encrypt certificate is being issued for ${KOREPUSH_DOMAIN}."
+  echo "  It needs this domain's DNS pointing here and port 80 open; allow ~1 min."
+  echo "  Track it: kubectl -n korepush-system get certificate"
+  echo "  For apps over HTTPS, point a wildcard *.${KOREPUSH_DOMAIN} at this server too."
+fi
 echo
 echo "  Grafana (metrics):  ${AUTH_URL}/grafana"
 echo "    user: admin   password: ${GRAFANA_PASSWORD}"
