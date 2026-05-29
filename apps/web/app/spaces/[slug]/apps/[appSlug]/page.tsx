@@ -8,9 +8,12 @@ import {
   finalizeBuild,
   listDatabases,
   listDeployments,
+  getEffectiveEnv,
 } from "@korepush/k8s";
 import { AppLive } from "@/components/app-live";
 import { AppMetrics } from "@/components/app-metrics";
+import { AppDiagnostics } from "@/components/app-diagnostics";
+import { AppEnv } from "@/components/app-env";
 import { BuildLogs } from "@/components/build-logs";
 import { RedeployButton } from "@/components/redeploy-button";
 import { RollbackButton } from "@/components/rollback-button";
@@ -53,6 +56,9 @@ export default async function AppPage({
   }));
 
   const deployments = await listDeployments(app.id);
+  const effectiveEnv = await getEffectiveEnv(space.namespace, app.slug).catch(
+    () => ({ ok: false, pod: null, env: [] }),
+  );
 
   return (
     <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
@@ -109,6 +115,14 @@ export default async function AppPage({
             appSlug={app.slug}
             namespace={space.namespace}
           />
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+            <AppDiagnostics spaceSlug={space.slug} appSlug={app.slug} />
+            <AppEnv
+              spaceSlug={space.slug}
+              appSlug={app.slug}
+              initial={effectiveEnv}
+            />
+          </div>
           {deployments.length > 0 && (
             <div>
               <h2 className="mb-3 text-sm font-medium text-muted">
