@@ -2,14 +2,19 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { createAppAction } from "@/app/actions";
+import { createAppAction, createGitAppAction } from "@/app/actions";
+
+type Mode = "image" | "git";
 
 export function CreateApp({ spaceSlug }: { spaceSlug: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<Mode>("git");
   const [name, setName] = useState("");
   const [image, setImage] = useState("");
-  const [port, setPort] = useState("80");
+  const [repoUrl, setRepoUrl] = useState("");
+  const [gitRef, setGitRef] = useState("main");
+  const [port, setPort] = useState("3000");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -17,20 +22,29 @@ export function CreateApp({ spaceSlug }: { spaceSlug: string }) {
     e.preventDefault();
     setError(null);
     startTransition(async () => {
-      const res = await createAppAction({
-        spaceSlug,
-        name,
-        image,
-        port: Number(port) || 80,
-      });
-      if (!res.ok) {
-        setError(res.error);
-        return;
+      if (mode === "image") {
+        const res = await createAppAction({
+          spaceSlug,
+          name,
+          image,
+          port: Number(port) || 80,
+        });
+        if (!res.ok) return setError(res.error);
+        setOpen(false);
+        router.refresh();
+      } else {
+        const res = await createGitAppAction({
+          spaceSlug,
+          name,
+          repoUrl,
+          gitRef: gitRef || "main",
+          port: Number(port) || 3000,
+        });
+        if (!res.ok) return setError(res.error);
+        router.push(
+          `/spaces/${spaceSlug}/apps/${res.appSlug}?build=${res.deploymentId}`,
+        );
       }
-      setName("");
-      setImage("");
-      setOpen(false);
-      router.refresh();
     });
   }
 
@@ -42,8 +56,25 @@ export function CreateApp({ spaceSlug }: { spaceSlug: string }) {
     );
   }
 
+  const tab = (m: Mode, label: string) => (
+    <button
+      type="button"
+      onClick={() => setMode(m)}
+      className={`rounded-md px-3 py-1.5 text-sm ${
+        mode === m ? "bg-surface-2 text-foreground" : "text-muted"
+      }`}
+    >
+      {label}
+    </button>
+  );
+
   return (
     <form onSubmit={submit} className="card space-y-3">
+      <div className="flex gap-1 rounded-lg border border-border p-1 w-fit">
+        {tab("git", "From Git repo")}
+        {tab("image", "From image")}
+      </div>
+
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <div>
           <label className="label">Name</label>
@@ -56,16 +87,40 @@ export function CreateApp({ spaceSlug }: { spaceSlug: string }) {
             required
           />
         </div>
-        <div>
-          <label className="label">Image</label>
-          <input
-            className="input"
-            placeholder="nginx:alpine"
-            value={image}
-            onChange={(e) => setImage(e.target.value)}
-            required
-          />
-        </div>
+        {mode === "image" ? (
+          <div className="sm:col-span-2">
+            <label className="label">Image</label>
+            <input
+              className="input"
+              placeholder="nginx:alpine"
+              value={image}
+              onChange={(e) => setImage(e.target.value)}
+              required
+            />
+          </div>
+        ) : (
+          <>
+            <div>
+              <label className="label">Git repository URL</label>
+              <input
+                className="input"
+                placeholder="https://github.com/acme/app.git"
+                value={repoUrl}
+                onChange={(e) => setRepoUrl(e.target.value)}
+                required
+              />
+            </div>
+            <div>
+              <label className="label">Branch</label>
+              <input
+                className="input"
+                placeholder="main"
+                value={gitRef}
+                onChange={(e) => setGitRef(e.target.value)}
+              />
+            </div>
+          </>
+        )}
         <div>
           <label className="label">Container port</label>
           <input
@@ -76,10 +131,18 @@ export function CreateApp({ spaceSlug }: { spaceSlug: string }) {
           />
         </div>
       </div>
+
+      {mode === "git" && (
+        <p className="text-xs text-muted">
+          The repo is built in-cluster (a Dockerfile is required for now;
+          Railpack auto-detection is coming). Build logs stream live.
+        </p>
+      )}
       {error && <p className="text-sm text-danger">{error}</p>}
+
       <div className="flex gap-2">
         <button type="submit" className="btn-primary" disabled={pending}>
-          {pending ? "Deploying…" : "Deploy"}
+          {pending ? "Starting…" : mode === "git" ? "Build & deploy" : "Deploy"}
         </button>
         <button
           type="button"

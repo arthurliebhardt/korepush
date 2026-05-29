@@ -51,12 +51,29 @@ case "$KOREPUSH_DOMAIN" in
 esac
 TRUSTED_ORIGINS="$AUTH_URL"
 
-# 2. Install k3s (bundles containerd, Traefik ingress, kubectl, local-path storage).
+# 2. Configure containerd to pull from the in-cluster registry. Builds push to
+#    registry.korepush-system.svc.cluster.local:5000 (svc DNS, in-cluster); the
+#    host's containerd can't resolve that, so mirror it to the node-local
+#    NodePort over plain HTTP. k3s reads this only at startup.
+mkdir -p /etc/rancher/k3s
+cat > /etc/rancher/k3s/registries.yaml <<'EOF'
+mirrors:
+  "registry.korepush-system.svc.cluster.local:5000":
+    endpoint:
+      - "http://127.0.0.1:30000"
+configs:
+  "127.0.0.1:30000":
+    tls:
+      insecure_skip_verify: true
+EOF
+
+# 3. Install k3s (bundles containerd, Traefik ingress, kubectl, local-path storage).
 if ! command -v k3s >/dev/null 2>&1; then
   log "Installing k3s…"
   curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--write-kubeconfig-mode 644" sh -
 else
-  log "k3s already installed; skipping."
+  log "k3s already installed; restarting to apply registry config…"
+  systemctl restart k3s
 fi
 export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
 

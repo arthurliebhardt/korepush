@@ -7,10 +7,15 @@ import {
   deleteSpace,
   createApp,
   deleteApp,
+  createGitApp,
+  triggerGitBuild,
   setControlPlaneDomain,
 } from "@korepush/k8s";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
+export type BuildActionResult =
+  | { ok: true; appSlug: string; deploymentId: string }
+  | { ok: false; error: string };
 
 export async function createSpaceAction(name: string): Promise<ActionResult> {
   const session = await requireUser();
@@ -59,6 +64,38 @@ export async function deleteAppAction(
     await deleteApp(spaceSlug, appSlug);
     revalidatePath(`/spaces/${spaceSlug}`);
     return { ok: true };
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  }
+}
+
+export async function createGitAppAction(input: {
+  spaceSlug: string;
+  name: string;
+  repoUrl: string;
+  gitRef?: string;
+  port?: number;
+}): Promise<BuildActionResult> {
+  await requireUser();
+  try {
+    const app = await createGitApp(input);
+    const { deploymentId } = await triggerGitBuild(input.spaceSlug, app.slug);
+    revalidatePath(`/spaces/${input.spaceSlug}`);
+    return { ok: true, appSlug: app.slug, deploymentId };
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  }
+}
+
+export async function redeployAction(
+  spaceSlug: string,
+  appSlug: string,
+): Promise<BuildActionResult> {
+  await requireUser();
+  try {
+    const { deploymentId } = await triggerGitBuild(spaceSlug, appSlug, "manual");
+    revalidatePath(`/spaces/${spaceSlug}/apps/${appSlug}`);
+    return { ok: true, appSlug, deploymentId };
   } catch (err) {
     return { ok: false, error: errorMessage(err) };
   }

@@ -18,6 +18,7 @@ function build() {
     core: kc.makeApiClient(k8s.CoreV1Api),
     apps: kc.makeApiClient(k8s.AppsV1Api),
     net: kc.makeApiClient(k8s.NetworkingV1Api),
+    batch: kc.makeApiClient(k8s.BatchV1Api),
   };
 }
 

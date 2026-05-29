@@ -15,8 +15,26 @@ export {
   createSpace,
   deleteSpace,
 } from "./spaces";
-export { listApps, getApp, createApp, deleteApp } from "./apps";
-export type { CreateAppInput } from "./apps";
+export {
+  listApps,
+  getApp,
+  createApp,
+  deleteApp,
+  createGitApp,
+  triggerGitBuild,
+  finalizeBuild,
+  listDeployments,
+  latestBuildingDeployment,
+} from "./apps";
+export type { CreateAppInput, CreateGitAppInput } from "./apps";
+export {
+  BUILD_NS,
+  buildImageRef,
+  buildJobName,
+  getBuildJobPhase,
+  getBuildPodName,
+} from "./build";
+export type { BuildPhase } from "./build";
 export {
   getControlPlaneInfo,
   setControlPlaneDomain,
