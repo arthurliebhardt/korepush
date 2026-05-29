@@ -38,8 +38,23 @@ export async function streamPodLogs(
   podName: string,
   stream: Writable,
   options: LogOptions = { follow: true, tailLines: 200 },
+  container = "",
 ): Promise<AbortController> {
   const { kc } = k8sClients();
   const log = new Log(kc);
-  return log.log(namespace, podName, "", stream, options);
+  return log.log(namespace, podName, container, stream, options);
+}
+
+/** Whether a pod's named container has started (running or already terminated). */
+export async function isContainerStarted(
+  namespace: string,
+  podName: string,
+  container: string,
+): Promise<boolean> {
+  const { core } = k8sClients();
+  const pod = await core
+    .readNamespacedPod({ name: podName, namespace })
+    .catch(() => null);
+  const cs = pod?.status?.containerStatuses?.find((c) => c.name === container);
+  return !!cs && (!!cs.state?.running || !!cs.state?.terminated);
 }

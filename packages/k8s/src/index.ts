@@ -8,7 +8,7 @@ export {
   managedLabels,
   MANAGED_BY,
 } from "./client";
-export { getAppPodName, streamPodLogs } from "./pods";
+export { getAppPodName, streamPodLogs, isContainerStarted } from "./pods";
 export {
   listSpaces,
   getSpaceBySlug,

@@ -7,6 +7,7 @@ import {
   buildJobName,
   finalizeBuild,
   streamPodLogs,
+  isContainerStarted,
   BUILD_NS,
 } from "@korepush/k8s";
 
@@ -66,6 +67,13 @@ export async function GET(
       }
       send("status", `Building in ${pod}`);
 
+      // Wait until the build container has started (the buildkitd native
+      // sidecar inits first) so the stream attaches to real output.
+      for (let i = 0; i < 60; i++) {
+        if (await isContainerStarted(BUILD_NS, pod, "build")) break;
+        await sleep(2000);
+      }
+
       const pt = new PassThrough();
       pt.on("data", (chunk: Buffer) => {
         for (const line of chunk.toString("utf8").split("\n")) {
@@ -75,10 +83,13 @@ export async function GET(
       pt.on("end", () => void finalizeAndClose());
 
       try {
-        const ac = await streamPodLogs(BUILD_NS, pod, pt, {
-          follow: true,
-          tailLines: 1000,
-        });
+        const ac = await streamPodLogs(
+          BUILD_NS,
+          pod,
+          pt,
+          { follow: true, tailLines: 1000 },
+          "build",
+        );
         cleanup = () => {
           ac.abort();
           pt.destroy();
