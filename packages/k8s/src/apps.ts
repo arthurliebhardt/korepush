@@ -444,8 +444,9 @@ export async function addAppDomain(
       useStaging,
     });
   } catch (err) {
-    const msg = String(err);
-    if (msg.includes("23505") || msg.toLowerCase().includes("unique")) {
+    // postgres-js puts the SQLSTATE on .code; drizzle wraps it under .cause.
+    const e = err as { code?: string; cause?: { code?: string } };
+    if (e?.code === "23505" || e?.cause?.code === "23505") {
       throw new Error("That domain is already in use.");
     }
     throw err;
