@@ -42,6 +42,11 @@ export {
   rollbackDeployment,
   listDeployments,
   latestBuildingDeployment,
+  addAppDomain,
+  removeAppDomain,
+  listAppDomains,
+  refreshAppDomainStatus,
+  getNodeIp,
 } from "./apps";
 export type { CreateAppInput, CreateGitAppInput } from "./apps";
 export {

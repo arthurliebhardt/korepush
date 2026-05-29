@@ -31,6 +31,10 @@ rules:
       - limitranges
       - events
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Read the node's address to show DNS instructions for custom domains.
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: ["apps"]
     resources: ["deployments", "replicasets", "statefulsets"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
@@ -44,12 +48,11 @@ rules:
   - apiGroups: ["postgresql.cnpg.io"]
     resources: ["clusters"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # cert-manager: backfill the ACME account email on a ClusterIssuer when a
-  # domain is added (TLS itself is driven by Ingress annotations, which need no
-  # extra RBAC — cert-manager's own SA creates the Certificates/Secrets).
+  # cert-manager: backfill the ACME email on a ClusterIssuer (control-plane
+  # domain) + directly manage per-app-domain Certificates (custom domains).
   - apiGroups: ["cert-manager.io"]
-    resources: ["clusterissuers"]
-    verbs: ["get", "list", "watch", "update", "patch"]
+    resources: ["clusterissuers", "certificates"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

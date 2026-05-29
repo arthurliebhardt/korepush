@@ -9,6 +9,8 @@ import {
   listDatabases,
   listDeployments,
   getEffectiveEnv,
+  listAppDomains,
+  getNodeIp,
 } from "@korepush/k8s";
 import { AppLive } from "@/components/app-live";
 import { AppMetrics } from "@/components/app-metrics";
@@ -19,6 +21,7 @@ import { RedeployButton } from "@/components/redeploy-button";
 import { RollbackButton } from "@/components/rollback-button";
 import { AttachDatabase } from "@/components/attach-database";
 import { EnvEditor } from "@/components/env-editor";
+import { CustomDomains } from "@/components/custom-domains";
 import { StatusBadge } from "@/components/status-badge";
 
 export const dynamic = "force-dynamic";
@@ -59,6 +62,15 @@ export default async function AppPage({
   const effectiveEnv = await getEffectiveEnv(space.namespace, app.slug).catch(
     () => ({ ok: false, pod: null, env: [] }),
   );
+  const appDomains = (await listAppDomains(app.id).catch(() => [])).map((d) => ({
+    host: d.host,
+    status: d.status,
+    statusMessage: d.statusMessage,
+    useStaging: d.useStaging,
+  }));
+  const nodeIp = await getNodeIp().catch(() => null);
+  const baseDomain = process.env.KOREPUSH_BASE_DOMAIN ?? "localhost";
+  const autoHost = `${app.slug}.${space.slug}.${baseDomain}`;
 
   return (
     <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
@@ -94,6 +106,13 @@ export default async function AppPage({
           appSlug={app.slug}
           env={app.env}
           secretKeys={app.secretKeys}
+        />
+        <CustomDomains
+          spaceSlug={space.slug}
+          appSlug={app.slug}
+          initial={appDomains}
+          serverIp={nodeIp}
+          autoHost={autoHost}
         />
       </div>
 

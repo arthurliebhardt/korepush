@@ -1,4 +1,5 @@
 import type { V1EnvVar } from "@kubernetes/client-node";
+import { promises as dns } from "node:dns";
 import { and, desc, eq } from "drizzle-orm";
 import { db, schema } from "@korepush/db";
 import { k8sClients, managedLabels } from "./client";
@@ -12,6 +13,8 @@ import {
 } from "./build";
 
 const BASE_DOMAIN = process.env.KOREPUSH_BASE_DOMAIN ?? "localhost";
+const CM_GROUP = "cert-manager.io";
+const CM_VERSION = "v1";
 
 export async function listApps(spaceId: string) {
   return db
@@ -254,6 +257,318 @@ async function reconcileApp(
       body: existingIng,
     });
   }
+
+  // Custom domains live on a separate Ingress with directly-managed certs.
+  // Best-effort: a domains hiccup must not fail a deploy/redeploy.
+  await reconcileAppDomains(namespace, spaceSlug, app).catch(() => {});
+}
+
+/* ──────────────────────────────────────────────────────────
+ * Custom domains: per-app extra hostnames, each with its own Let's Encrypt
+ * cert. A separate `<slug>-domains` Ingress + directly-managed cert-manager
+ * Certificate CRs (so the staging/prod issuer can be chosen per domain — a
+ * single Ingress annotation can't). The auto host stays on its own Ingress.
+ * ────────────────────────────────────────────────────────── */
+
+function domainSecretName(appSlug: string, host: string): string {
+  const h = host.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return `${appSlug}-d-${h}`.slice(0, 253);
+}
+
+/** The server's reachable IP, for DNS instructions + the DNS precheck. */
+export async function getNodeIp(): Promise<string | null> {
+  if (process.env.KOREPUSH_NODE_IP) return process.env.KOREPUSH_NODE_IP;
+  try {
+    const { core } = k8sClients();
+    const nodes = await core.listNode();
+    const addrs = nodes.items[0]?.status?.addresses ?? [];
+    return (
+      addrs.find((a) => a.type === "ExternalIP")?.address ??
+      addrs.find((a) => a.type === "InternalIP")?.address ??
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
+/** True when `host` resolves to the same IP as the app's auto host / node IP. */
+async function dnsPointsHere(
+  host: string,
+  autoHost: string,
+  serverIp: string | null,
+): Promise<boolean> {
+  const targets = new Set<string>();
+  if (serverIp) targets.add(serverIp);
+  try {
+    (await dns.resolve4(autoHost)).forEach((a) => targets.add(a));
+  } catch {
+    // auto host may be unresolvable (IP-only base) — fall back to serverIp.
+  }
+  if (targets.size === 0) return false;
+  try {
+    const addrs = await dns.resolve4(host);
+    return addrs.some((a) => targets.has(a));
+  } catch {
+    return false;
+  }
+}
+
+type AppDomainRow = typeof schema.appDomains.$inferSelect;
+
+async function ensureCertificate(
+  namespace: string,
+  appSlug: string,
+  d: AppDomainRow,
+) {
+  const { custom } = k8sClients();
+  const existing = await custom
+    .getNamespacedCustomObject({
+      group: CM_GROUP,
+      version: CM_VERSION,
+      namespace,
+      plural: "certificates",
+      name: d.secretName,
+    })
+    .catch(() => null);
+  if (existing) return; // issuer is fixed at add-time (v1)
+  await custom.createNamespacedCustomObject({
+    group: CM_GROUP,
+    version: CM_VERSION,
+    namespace,
+    plural: "certificates",
+    body: {
+      apiVersion: `${CM_GROUP}/${CM_VERSION}`,
+      kind: "Certificate",
+      metadata: {
+        name: d.secretName,
+        namespace,
+        labels: managedLabels({ "korepush.io/app": appSlug }),
+      },
+      spec: {
+        secretName: d.secretName,
+        dnsNames: [d.host],
+        issuerRef: {
+          name: d.useStaging ? "letsencrypt-staging" : "letsencrypt-prod",
+          kind: "ClusterIssuer",
+          group: CM_GROUP,
+        },
+      },
+    },
+  });
+}
+
+async function reconcileAppDomains(
+  namespace: string,
+  spaceSlug: string,
+  app: AppRow,
+) {
+  const { net } = k8sClients();
+  const ingName = `${app.slug}-domains`;
+  const domains = await db
+    .select()
+    .from(schema.appDomains)
+    .where(eq(schema.appDomains.appId, app.id));
+
+  if (domains.length === 0) {
+    await net
+      .deleteNamespacedIngress({ name: ingName, namespace })
+      .catch(() => {});
+    return;
+  }
+
+  // Only domains past the DNS precheck (status != pending) request a cert + TLS.
+  const active = domains.filter((d) => d.status !== "pending");
+  for (const d of active) {
+    await ensureCertificate(namespace, app.slug, d).catch(() => {});
+  }
+
+  const labels = managedLabels({ "korepush.io/app": app.slug });
+  const rules = domains.map((d) => ({
+    host: d.host,
+    http: {
+      paths: [
+        {
+          path: "/",
+          pathType: "Prefix",
+          backend: { service: { name: app.slug, port: { number: 80 } } },
+        },
+      ],
+    },
+  }));
+  const tls = active.map((d) => ({ hosts: [d.host], secretName: d.secretName }));
+  const spec = { rules, ...(tls.length ? { tls } : {}) };
+
+  const existing = await net
+    .readNamespacedIngress({ name: ingName, namespace })
+    .catch(() => null);
+  if (!existing) {
+    await net.createNamespacedIngress({
+      namespace,
+      body: { metadata: { name: ingName, namespace, labels }, spec },
+    });
+  } else {
+    existing.metadata = { ...existing.metadata, labels };
+    existing.spec = spec;
+    await net.replaceNamespacedIngress({ name: ingName, namespace, body: existing });
+  }
+}
+
+const DOMAIN_RE = /^(?!-)[a-z0-9-]+(\.[a-z0-9-]+)+$/;
+
+/** Attach a custom domain to an app. The cert provisions once DNS points here. */
+export async function addAppDomain(
+  spaceSlug: string,
+  appSlug: string,
+  hostRaw: string,
+  useStaging = false,
+) {
+  const space = await getSpaceBySlug(spaceSlug);
+  if (!space) throw new Error("Space not found");
+  const app = await getApp(space.id, appSlug);
+  if (!app) throw new Error("App not found");
+
+  const host = hostRaw.trim().toLowerCase();
+  if (!DOMAIN_RE.test(host)) {
+    throw new Error("Enter a valid domain, e.g. shop.example.com");
+  }
+  if (host === BASE_DOMAIN || host.endsWith(`.${BASE_DOMAIN}`)) {
+    throw new Error("That domain is managed automatically by korepush.");
+  }
+
+  try {
+    await db.insert(schema.appDomains).values({
+      appId: app.id,
+      host,
+      secretName: domainSecretName(app.slug, host),
+      useStaging,
+    });
+  } catch (err) {
+    const msg = String(err);
+    if (msg.includes("23505") || msg.toLowerCase().includes("unique")) {
+      throw new Error("That domain is already in use.");
+    }
+    throw err;
+  }
+  if (app.image) await reconcileAppDomains(space.namespace, space.slug, app);
+  return { host };
+}
+
+export async function removeAppDomain(
+  spaceSlug: string,
+  appSlug: string,
+  host: string,
+) {
+  const space = await getSpaceBySlug(spaceSlug);
+  if (!space) return;
+  const app = await getApp(space.id, appSlug);
+  if (!app) return;
+  const [d] = await db
+    .select()
+    .from(schema.appDomains)
+    .where(
+      and(
+        eq(schema.appDomains.appId, app.id),
+        eq(schema.appDomains.host, host.toLowerCase()),
+      ),
+    )
+    .limit(1);
+  if (!d) return;
+
+  await db.delete(schema.appDomains).where(eq(schema.appDomains.id, d.id));
+  const { custom, core } = k8sClients();
+  await custom
+    .deleteNamespacedCustomObject({
+      group: CM_GROUP,
+      version: CM_VERSION,
+      namespace: space.namespace,
+      plural: "certificates",
+      name: d.secretName,
+    })
+    .catch(() => {});
+  await core
+    .deleteNamespacedSecret({ name: d.secretName, namespace: space.namespace })
+    .catch(() => {});
+  await reconcileAppDomains(space.namespace, space.slug, app);
+}
+
+export async function listAppDomains(appId: string) {
+  return db
+    .select()
+    .from(schema.appDomains)
+    .where(eq(schema.appDomains.appId, appId))
+    .orderBy(schema.appDomains.createdAt);
+}
+
+/**
+ * Re-evaluate every custom domain for an app: a pending domain whose DNS now
+ * points here advances to "issuing" (and gets its cert requested via reconcile);
+ * an issuing domain's cert-manager Certificate Ready condition maps to
+ * active/error. Persists status + returns the fresh list (drives the UI poll).
+ */
+export async function refreshAppDomainStatus(
+  spaceSlug: string,
+  appSlug: string,
+): Promise<AppDomainRow[]> {
+  const space = await getSpaceBySlug(spaceSlug);
+  if (!space) return [];
+  const app = await getApp(space.id, appSlug);
+  if (!app) return [];
+  const domains = await db
+    .select()
+    .from(schema.appDomains)
+    .where(eq(schema.appDomains.appId, app.id));
+  if (domains.length === 0) return [];
+
+  const autoHost = `${app.slug}.${space.slug}.${BASE_DOMAIN}`;
+  const serverIp = await getNodeIp();
+  const { custom } = k8sClients();
+  let advanced = false;
+
+  for (const d of domains) {
+    if (d.status === "pending") {
+      if (await dnsPointsHere(d.host, autoHost, serverIp)) {
+        await db
+          .update(schema.appDomains)
+          .set({ status: "issuing", statusMessage: null })
+          .where(eq(schema.appDomains.id, d.id));
+        advanced = true;
+      }
+      continue;
+    }
+    const cert = (await custom
+      .getNamespacedCustomObject({
+        group: CM_GROUP,
+        version: CM_VERSION,
+        namespace: space.namespace,
+        plural: "certificates",
+        name: d.secretName,
+      })
+      .catch(() => null)) as {
+      status?: { conditions?: { type: string; status: string; reason?: string; message?: string }[] };
+    } | null;
+    const ready = cert?.status?.conditions?.find((c) => c.type === "Ready");
+    let status = d.status;
+    let message: string | null = d.statusMessage;
+    if (ready?.status === "True") {
+      status = "active";
+      message = null;
+    } else if (ready) {
+      status = ready.reason === "Failed" ? "error" : "issuing";
+      message = ready.message ?? null;
+    }
+    if (status !== d.status || message !== d.statusMessage) {
+      await db
+        .update(schema.appDomains)
+        .set({ status, statusMessage: message })
+        .where(eq(schema.appDomains.id, d.id));
+    }
+  }
+
+  if (advanced && app.image) {
+    await reconcileAppDomains(space.namespace, space.slug, app);
+  }
+  return listAppDomains(app.id);
 }
 
 /** True for a real owned domain (not localhost, an IP, or a magic-DNS base). */
@@ -697,15 +1012,39 @@ export async function deleteApp(spaceSlug: string, slug: string) {
   const app = await getApp(space.id, slug);
   if (!app) return;
 
-  const { apps, core, net } = k8sClients();
+  // Custom-domain certs/secrets aren't garbage-collected by deleting the
+  // Ingress, so remove them explicitly (the rows cascade with the app).
+  const domains = await db
+    .select()
+    .from(schema.appDomains)
+    .where(eq(schema.appDomains.appId, app.id));
+
+  const { apps, core, net, custom } = k8sClients();
   await Promise.allSettled([
     apps.deleteNamespacedDeployment({ name: slug, namespace: space.namespace }),
     core.deleteNamespacedService({ name: slug, namespace: space.namespace }),
     net.deleteNamespacedIngress({ name: slug, namespace: space.namespace }),
+    net.deleteNamespacedIngress({
+      name: `${slug}-domains`,
+      namespace: space.namespace,
+    }),
     core.deleteNamespacedSecret({
       name: `${slug}-env`,
       namespace: space.namespace,
     }),
+    ...domains.flatMap((d) => [
+      custom.deleteNamespacedCustomObject({
+        group: CM_GROUP,
+        version: CM_VERSION,
+        namespace: space.namespace,
+        plural: "certificates",
+        name: d.secretName,
+      }),
+      core.deleteNamespacedSecret({
+        name: d.secretName,
+        namespace: space.namespace,
+      }),
+    ]),
   ]);
   await db.delete(schema.apps).where(eq(schema.apps.id, app.id));
 }

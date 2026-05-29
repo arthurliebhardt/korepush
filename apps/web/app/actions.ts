@@ -18,6 +18,9 @@ import {
   detachDatabase,
   setAppEnv,
   rollbackDeployment,
+  addAppDomain,
+  removeAppDomain,
+  refreshAppDomainStatus,
 } from "@korepush/k8s";
 import { mintCloneTokenForRepo, detectPort } from "@/lib/github/app";
 import { detectProject } from "@/lib/github/detect";
@@ -276,6 +279,58 @@ export async function setAppEnvAction(
   } catch (err) {
     return { ok: false, error: errorMessage(err) };
   }
+}
+
+export async function addAppDomainAction(
+  spaceSlug: string,
+  appSlug: string,
+  host: string,
+  useStaging = false,
+): Promise<ActionResult> {
+  await requireUser();
+  try {
+    await addAppDomain(spaceSlug, appSlug, host, useStaging);
+    revalidatePath(`/spaces/${spaceSlug}/apps/${appSlug}`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  }
+}
+
+export async function removeAppDomainAction(
+  spaceSlug: string,
+  appSlug: string,
+  host: string,
+): Promise<ActionResult> {
+  await requireUser();
+  try {
+    await removeAppDomain(spaceSlug, appSlug, host);
+    revalidatePath(`/spaces/${spaceSlug}/apps/${appSlug}`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  }
+}
+
+export type AppDomainView = {
+  host: string;
+  status: string;
+  statusMessage: string | null;
+  useStaging: boolean;
+};
+
+export async function refreshAppDomainsAction(
+  spaceSlug: string,
+  appSlug: string,
+): Promise<AppDomainView[]> {
+  await requireUser();
+  const rows = await refreshAppDomainStatus(spaceSlug, appSlug).catch(() => []);
+  return rows.map((d) => ({
+    host: d.host,
+    status: d.status,
+    statusMessage: d.statusMessage,
+    useStaging: d.useStaging,
+  }));
 }
 
 export async function setDomainAction(

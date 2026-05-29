@@ -147,6 +147,25 @@ export const apps = pgTable("apps", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// Custom domains attached to an app (apex or subdomain). `host` is globally
+// UNIQUE — two apps claiming the same host would make Traefik route it
+// nondeterministically, so Postgres is the source of truth for uniqueness.
+export const appDomains = pgTable("app_domains", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  appId: uuid("app_id")
+    .notNull()
+    .references(() => apps.id, { onDelete: "cascade" }),
+  host: text("host").notNull().unique(),
+  // k8s TLS Secret + cert-manager Certificate name for this domain.
+  secretName: text("secret_name").notNull(),
+  useStaging: boolean("use_staging").default(false).notNull(),
+  // pending (DNS not pointing here) | issuing | active | error
+  status: text("status").default("pending").notNull(),
+  statusMessage: text("status_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export type AppDomain = typeof appDomains.$inferSelect;
+
 export const databases = pgTable("databases", {
   id: uuid("id").primaryKey().defaultRandom(),
   spaceId: uuid("space_id")
