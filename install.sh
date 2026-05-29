@@ -9,6 +9,8 @@
 #   KOREPUSH_IMAGE    Control-plane image (default: ghcr.io/arthurliebhardt/korepush:latest)
 #   KOREPUSH_MANIFEST Path or URL to deploy manifest (default: bundled/remote)
 #   KOREPUSH_MONITORING_MANIFEST  Path or URL to monitoring manifest (default: bundled/remote)
+#   KOREPUSH_ACME_EMAIL  Contact email for Let's Encrypt (HTTPS on custom domains)
+#   KOREPUSH_SKIP_CERTMANAGER  Set to skip installing cert-manager + issuers
 #
 set -euo pipefail
 
@@ -100,9 +102,48 @@ CNPG_MANIFEST="${KOREPUSH_CNPG_MANIFEST:-https://raw.githubusercontent.com/cloud
 "$KUBECTL" -n cnpg-system rollout status deploy/cnpg-controller-manager --timeout=180s ||
   err "CloudNativePG not ready yet; databases will work once its controller starts."
 
-# 3. Fetch the deploy manifest (prefer a local copy when run from a checkout).
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
+
+# 3a. Install cert-manager + Let's Encrypt ClusterIssuers (HTTPS for custom
+#     domains; the cert itself is provisioned when a domain is added via
+#     Settings). cert-manager CRDs are large → --server-side (like CNPG). Its
+#     webhook must be Ready before Issuers apply, so wait then retry the apply.
+if [ -z "${KOREPUSH_SKIP_CERTMANAGER:-}" ]; then
+  log "Installing cert-manager…"
+  CM_MANIFEST="${KOREPUSH_CERTMANAGER_MANIFEST:-https://github.com/cert-manager/cert-manager/releases/download/v1.18.2/cert-manager.yaml}"
+  "$KUBECTL" apply --server-side -f "$CM_MANIFEST" || die "Failed to install cert-manager."
+  "$KUBECTL" -n cert-manager rollout status \
+    deploy/cert-manager deploy/cert-manager-webhook deploy/cert-manager-cainjector \
+    --timeout=300s || die "cert-manager did not become ready."
+
+  log "Creating Let's Encrypt ClusterIssuers…"
+  ISSUERS="$WORK/cluster-issuers.yaml"
+  if [ -f "./deploy/cluster-issuers.yaml" ]; then
+    cp ./deploy/cluster-issuers.yaml "$ISSUERS"
+  else
+    curl -sfL "${KOREPUSH_CLUSTERISSUERS_MANIFEST:-https://raw.githubusercontent.com/arthurliebhardt/korepush/main/deploy/cluster-issuers.yaml}" \
+      -o "$ISSUERS" || die "Failed to download ClusterIssuers manifest."
+  fi
+  if [ -n "${KOREPUSH_ACME_EMAIL:-}" ]; then
+    sed -i "s|__ACME_EMAIL__|${KOREPUSH_ACME_EMAIL}|g" "$ISSUERS"
+  else
+    # No email → register the ACME account without a contact (valid). The
+    # admin's email backfills it when a domain is added via Settings.
+    sed -i "/__ACME_EMAIL__/d" "$ISSUERS"
+  fi
+  # The webhook can lag behind its Deployment going Available; retry until it
+  # accepts the Issuers (no extra binary, ~equivalent to `cmctl check api`).
+  for _ in $(seq 1 30); do
+    "$KUBECTL" apply -f "$ISSUERS" >/dev/null 2>&1 && break
+    log "Waiting for cert-manager webhook to accept ClusterIssuers…"
+    sleep 2
+  done
+  "$KUBECTL" get clusterissuer letsencrypt-prod >/dev/null 2>&1 ||
+    err "ClusterIssuers not created yet; HTTPS will work once cert-manager is fully up."
+fi
+
+# 3. Fetch the deploy manifest (prefer a local copy when run from a checkout).
 MANIFEST="$WORK/korepush.yaml"
 if [ -f "./deploy/korepush.yaml" ]; then
   log "Using bundled manifest ./deploy/korepush.yaml"
@@ -126,6 +167,7 @@ sed -i \
   -e "s|__TRUSTED_ORIGINS__|${TRUSTED_ORIGINS}|g" \
   -e "s|__AUTH_SECRET__|${AUTH_SECRET}|g" \
   -e "s|__DB_PASSWORD__|${DB_PASSWORD}|g" \
+  -e "s|__ACME_EMAIL__|${KOREPUSH_ACME_EMAIL:-}|g" \
   "$MANIFEST"
 
 # 4b. Install the monitoring stack (Prometheus + kube-state-metrics +

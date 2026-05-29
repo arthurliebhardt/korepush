@@ -181,13 +181,19 @@ export async function detachDatabaseAction(
   }
 }
 
-export async function setDomainAction(domain: string): Promise<ActionResult> {
+export async function setDomainAction(
+  domain: string,
+  useStaging = false,
+): Promise<ActionResult> {
   const session = await requireUser();
   if ((session.user as { role?: string }).role !== "admin") {
     return { ok: false, error: "Only an admin can change the domain." };
   }
   try {
-    await setControlPlaneDomain(domain);
+    await setControlPlaneDomain(domain, {
+      email: session.user.email,
+      useStaging,
+    });
     revalidatePath("/settings");
     return { ok: true };
   } catch (err) {

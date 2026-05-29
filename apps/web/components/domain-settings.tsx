@@ -7,6 +7,7 @@ import { setDomainAction } from "@/app/actions";
 export function DomainSettings({ hosts }: { hosts: string[] }) {
   const router = useRouter();
   const [domain, setDomain] = useState("");
+  const [useStaging, setUseStaging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -16,7 +17,7 @@ export function DomainSettings({ hosts }: { hosts: string[] }) {
     setError(null);
     setDone(null);
     startTransition(async () => {
-      const res = await setDomainAction(domain);
+      const res = await setDomainAction(domain, useStaging);
       if (!res.ok) {
         setError(res.error);
         return;
@@ -65,12 +66,25 @@ export function DomainSettings({ hosts }: { hosts: string[] }) {
             Point this domain&apos;s DNS A record at this server first. The IP
             URL keeps working, so you won&apos;t get locked out.
           </p>
+          <p className="mt-1.5 text-xs text-muted">
+            HTTPS is provisioned automatically via Let&apos;s Encrypt once DNS
+            points here and port 80 is reachable — this can take a minute.
+          </p>
         </div>
+        <label className="flex items-center gap-2 text-xs text-muted">
+          <input
+            type="checkbox"
+            checked={useStaging}
+            onChange={(e) => setUseStaging(e.target.checked)}
+          />
+          Use Let&apos;s Encrypt staging (for testing — issues an untrusted cert,
+          avoids hitting production rate limits)
+        </label>
         {error && <p className="text-sm text-danger">{error}</p>}
         {done && (
           <p className="text-sm text-success">
             Added {done}. Control plane is restarting — it&apos;ll answer at
-            http://{done} once DNS resolves here.
+            https://{done} once DNS resolves here and the certificate is issued.
           </p>
         )}
         <button type="submit" className="btn-primary" disabled={pending}>

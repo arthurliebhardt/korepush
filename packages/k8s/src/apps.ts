@@ -180,34 +180,74 @@ async function reconcileApp(
   );
 
   const host = `${app.slug}.${spaceSlug}.${BASE_DOMAIN}`;
-  await apply(
-    net.readNamespacedIngress({ name: app.slug, namespace }),
-    () =>
-      net.createNamespacedIngress({
-        namespace,
-        body: {
-          metadata: { name: app.slug, namespace, labels },
-          spec: {
-            rules: [
-              {
-                host,
-                http: {
-                  paths: [
-                    {
-                      path: "/",
-                      pathType: "Prefix",
-                      backend: {
-                        service: { name: app.slug, port: { number: 80 } },
-                      },
-                    },
-                  ],
-                },
-              },
-            ],
-          },
+  // On a real owned base domain, provision a per-host Let's Encrypt cert via
+  // cert-manager (HTTP-01). Skip for IP / sslip.io bases — there's no public
+  // DNS to satisfy the ACME challenge, so those stay HTTP.
+  const tlsEnabled = isRealDomain(BASE_DOMAIN);
+  const ingressAnnotations = tlsEnabled
+    ? { "cert-manager.io/cluster-issuer": "letsencrypt-prod" }
+    : undefined;
+  const ingressSpec = {
+    rules: [
+      {
+        host,
+        http: {
+          paths: [
+            {
+              path: "/",
+              pathType: "Prefix",
+              backend: { service: { name: app.slug, port: { number: 80 } } },
+            },
+          ],
         },
-      }),
-  );
+      },
+    ],
+    ...(tlsEnabled
+      ? { tls: [{ hosts: [host], secretName: `${app.slug}-tls` }] }
+      : {}),
+  };
+  // Replace-on-exists (not create-only): a redeploy backfills TLS onto an app
+  // whose Ingress predates HTTPS being enabled for the space's base domain.
+  const existingIng = await net
+    .readNamespacedIngress({ name: app.slug, namespace })
+    .catch(() => null);
+  if (!existingIng) {
+    await net.createNamespacedIngress({
+      namespace,
+      body: {
+        metadata: {
+          name: app.slug,
+          namespace,
+          labels,
+          ...(ingressAnnotations ? { annotations: ingressAnnotations } : {}),
+        },
+        spec: ingressSpec,
+      },
+    });
+  } else {
+    existingIng.metadata = {
+      ...existingIng.metadata,
+      labels,
+      annotations: {
+        ...existingIng.metadata?.annotations,
+        ...(ingressAnnotations ?? {}),
+      },
+    };
+    existingIng.spec = ingressSpec;
+    await net.replaceNamespacedIngress({
+      name: app.slug,
+      namespace,
+      body: existingIng,
+    });
+  }
+}
+
+/** True for a real owned domain (not localhost, an IP, or a magic-DNS base). */
+function isRealDomain(d: string): boolean {
+  if (!d || d === "localhost") return false;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(d)) return false;
+  if (d.endsWith(".sslip.io") || d.endsWith(".nip.io")) return false;
+  return d.includes(".");
 }
 
 /** Create the resource only if the read 404s; ignore "already exists". */

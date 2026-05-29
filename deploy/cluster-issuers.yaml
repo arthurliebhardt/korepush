@@ -1,0 +1,46 @@
+# Let's Encrypt ClusterIssuers for korepush HTTPS (cert-manager, HTTP-01 via
+# the bundled k3s Traefik). Applied by install.sh after cert-manager is ready.
+# __ACME_EMAIL__ is substituted (or the email line deleted) by install.sh.
+#
+# k3s footgun: the HTTP-01 solver Ingress MUST use the legacy `class: traefik`
+# (→ kubernetes.io/ingress.class annotation), NOT `ingressClassName` — k3s's
+# Traefik often ignores solver Ingresses set via ingressClassName and 404s the
+# /.well-known/acme-challenge/ path. The high router.priority makes the solver
+# route win over korepush's host-less catch-all Ingress (path /).
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: __ACME_EMAIL__
+    privateKeySecretRef:
+      name: letsencrypt-prod-account
+    solvers:
+      - http01:
+          ingress:
+            class: traefik
+            ingressTemplate:
+              metadata:
+                annotations:
+                  traefik.ingress.kubernetes.io/router.priority: "1000"
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: __ACME_EMAIL__
+    privateKeySecretRef:
+      name: letsencrypt-staging-account
+    solvers:
+      - http01:
+          ingress:
+            class: traefik
+            ingressTemplate:
+              metadata:
+                annotations:
+                  traefik.ingress.kubernetes.io/router.priority: "1000"
