@@ -6,13 +6,13 @@
 #
 # Environment overrides:
 #   KOREPUSH_DOMAIN   Hostname the UI is served on (default: server public IP)
-#   KOREPUSH_IMAGE    Control-plane image (default: ghcr.io/korepush/korepush:latest)
+#   KOREPUSH_IMAGE    Control-plane image (default: ghcr.io/arthurliebhardt/korepush:latest)
 #   KOREPUSH_MANIFEST Path or URL to deploy manifest (default: bundled/remote)
 #
 set -euo pipefail
 
-KOREPUSH_IMAGE="${KOREPUSH_IMAGE:-ghcr.io/korepush/korepush:latest}"
-MANIFEST_URL="${KOREPUSH_MANIFEST:-https://raw.githubusercontent.com/korepush/korepush/main/deploy/korepush.yaml}"
+KOREPUSH_IMAGE="${KOREPUSH_IMAGE:-ghcr.io/arthurliebhardt/korepush:latest}"
+MANIFEST_URL="${KOREPUSH_MANIFEST:-https://raw.githubusercontent.com/arthurliebhardt/korepush/main/deploy/korepush.yaml}"
 KUBECTL="/usr/local/bin/kubectl"
 
 log()  { printf '\033[1;36m[korepush]\033[0m %s\n' "$1"; }
