@@ -8,6 +8,7 @@
 #   KOREPUSH_DOMAIN   Hostname the UI is served on (default: server public IP)
 #   KOREPUSH_IMAGE    Control-plane image (default: ghcr.io/arthurliebhardt/korepush:latest)
 #   KOREPUSH_MANIFEST Path or URL to deploy manifest (default: bundled/remote)
+#   KOREPUSH_MONITORING_MANIFEST  Path or URL to monitoring manifest (default: bundled/remote)
 #
 set -euo pipefail
 
@@ -127,6 +128,32 @@ sed -i \
   -e "s|__DB_PASSWORD__|${DB_PASSWORD}|g" \
   "$MANIFEST"
 
+# 4b. Install the monitoring stack (Prometheus + kube-state-metrics +
+#     node-exporter + Grafana). Plain manifests → client-side apply is fine
+#     (unlike CNPG's huge CRDs). Grafana is served at <auth-url>/grafana with a
+#     freshly generated admin password (printed in the summary below).
+log "Installing monitoring stack (Prometheus + Grafana)…"
+GRAFANA_PASSWORD="$(gen)"
+MONITORING_MANIFEST="${KOREPUSH_MONITORING_MANIFEST:-https://raw.githubusercontent.com/arthurliebhardt/korepush/main/deploy/monitoring.yaml}"
+MON="$WORK/monitoring.yaml"
+if [ -f "./deploy/monitoring.yaml" ]; then
+  log "Using bundled monitoring manifest ./deploy/monitoring.yaml"
+  cp ./deploy/monitoring.yaml "$MON"
+else
+  log "Downloading monitoring manifest…"
+  curl -sfL "$MONITORING_MANIFEST" -o "$MON" || die "Failed to download monitoring manifest."
+fi
+sed -i \
+  -e "s|__AUTH_URL__|${AUTH_URL}|g" \
+  -e "s|__GRAFANA_PASSWORD__|${GRAFANA_PASSWORD}|g" \
+  "$MON"
+"$KUBECTL" apply -f "$MON" || die "Failed to install monitoring stack."
+# Generous timeout: a cold node pulls Prometheus/Grafana images concurrently.
+"$KUBECTL" -n korepush-monitoring rollout status deploy/prometheus --timeout=300s ||
+  err "Prometheus not ready yet; metrics will appear once it starts."
+"$KUBECTL" -n korepush-monitoring rollout status deploy/grafana --timeout=300s ||
+  err "Grafana not ready yet; it will come up shortly."
+
 # 5. Apply and wait for rollout.
 log "Deploying korepush…"
 "$KUBECTL" apply -f "$MANIFEST"
@@ -146,4 +173,8 @@ log "Done!"
 echo
 echo "  korepush is running. Open:  ${AUTH_URL}"
 echo "  First visit will prompt you to create the admin account."
+echo
+echo "  Grafana (metrics):  ${AUTH_URL}/grafana"
+echo "    user: admin   password: ${GRAFANA_PASSWORD}"
+echo "    (retrieve later: kubectl -n korepush-monitoring get secret grafana-admin -o jsonpath='{.data.admin-password}' | base64 -d)"
 echo

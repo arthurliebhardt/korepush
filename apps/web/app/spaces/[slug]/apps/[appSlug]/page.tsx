@@ -9,6 +9,7 @@ import {
   listDatabases,
 } from "@korepush/k8s";
 import { AppLive } from "@/components/app-live";
+import { AppMetrics } from "@/components/app-metrics";
 import { BuildLogs } from "@/components/build-logs";
 import { RedeployButton } from "@/components/redeploy-button";
 import { AttachDatabase } from "@/components/attach-database";
@@ -85,11 +86,18 @@ export default async function AppPage({
           deploymentId={buildId}
         />
       ) : (
-        <AppLive
-          spaceSlug={space.slug}
-          appSlug={app.slug}
-          initialStatus={app.status}
-        />
+        <div className="space-y-8">
+          <AppLive
+            spaceSlug={space.slug}
+            appSlug={app.slug}
+            initialStatus={app.status}
+          />
+          <AppMetrics
+            spaceSlug={space.slug}
+            appSlug={app.slug}
+            namespace={space.namespace}
+          />
+        </div>
       )}
     </div>
   );

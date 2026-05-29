@@ -51,4 +51,15 @@ export {
   deleteDatabase,
 } from "./databases";
 export type { DatabaseInfo } from "./databases";
+export {
+  prometheusReachable,
+  getAppMetrics,
+  getSpaceMetrics,
+} from "./metrics";
+export type {
+  AppMetrics,
+  SpaceMetrics,
+  MetricSeries,
+  MetricPoint,
+} from "./metrics";
 export { slugify } from "./util";

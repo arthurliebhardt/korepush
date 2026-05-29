@@ -6,6 +6,7 @@ import {
   listApps,
   listDatabases,
   getDatabaseInfo,
+  getSpaceMetrics,
 } from "@korepush/k8s";
 import { listAllConnectedRepos } from "@/lib/github/app";
 import { StatusBadge } from "@/components/status-badge";
@@ -26,6 +27,7 @@ export default async function SpacePage({
   if (!space) notFound();
 
   const apps = await listApps(space.id);
+  const usage = await getSpaceMetrics(space.namespace).catch(() => null);
   // Connected GitHub repos for the deploy picker (VM can reach GitHub outbound).
   const repos = (await listAllConnectedRepos().catch(() => [])).map((r) => ({
     fullName: r.fullName,
@@ -66,6 +68,15 @@ export default async function SpacePage({
           </span>
         </div>
       </div>
+
+      {usage?.ok && (
+        <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <UsageTile label="CPU" value={fmtCores(usage.cpuCores)} />
+          <UsageTile label="Memory" value={fmtBytes(usage.memoryBytes)} />
+          <UsageTile label="Pods" value={String(usage.pods)} />
+          <UsageTile label="Restarts" value={String(usage.restarts)} />
+        </div>
+      )}
 
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-sm font-medium text-muted">Apps</h2>
@@ -127,4 +138,27 @@ export default async function SpacePage({
       )}
     </div>
   );
+}
+
+function UsageTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="card">
+      <div className="text-xs text-muted">{label}</div>
+      <div className="mt-1 font-mono text-lg text-foreground">{value}</div>
+    </div>
+  );
+}
+
+function fmtCores(n: number): string {
+  return n >= 1 ? `${n.toFixed(2)} cores` : `${Math.round(n * 1000)} m`;
+}
+
+function fmtBytes(n: number): string {
+  const u = ["B", "KiB", "MiB", "GiB", "TiB"];
+  let i = 0;
+  while (n >= 1024 && i < u.length - 1) {
+    n /= 1024;
+    i++;
+  }
+  return `${n.toFixed(i === 0 ? 0 : 1)} ${u[i]}`;
 }
