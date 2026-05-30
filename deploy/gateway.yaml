@@ -1,0 +1,27 @@
+# The single shared korepush Gateway. Lives in kube-system alongside the k3s
+# Traefik deployment whose entrypoints it binds. IMPORTANT: listener ports are
+# Traefik's INTERNAL entrypoint ports — 8000 (web) / 8443 (websecure) — NOT
+# 80/443; external 80/443 reach them via the Traefik Service hostPorts. A
+# listener on port 80 fails with "no matching entryPoint for port 80".
+#
+# The `web` HTTP listener is the host-less catch-all (raw-IP access) + the ACME
+# HTTP-01 challenge target. NEVER attach an HTTP->HTTPS redirect to it (breaks
+# the challenge). HTTPS listeners per hostname (control-plane domain, per-space
+# wildcard auto-host, per custom domain) are added at runtime by the control
+# plane, so SNI selects the right cert before route precedence is consulted.
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: korepush
+  namespace: kube-system
+  labels:
+    app.kubernetes.io/managed-by: korepush
+spec:
+  gatewayClassName: traefik
+  listeners:
+    - name: web
+      protocol: HTTP
+      port: 8000
+      allowedRoutes:
+        namespaces:
+          from: All

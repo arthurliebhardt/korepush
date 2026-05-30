@@ -78,6 +78,32 @@ fetch "./deploy/korepush.yaml" "$RAW/deploy/korepush.yaml" "$WORK/cp.yaml"
 awk 'BEGIN{RS="\n---\n"} /\nkind: ClusterRole/{print $0"\n---"}' "$WORK/cp.yaml" |
   $KUBECTL apply -f - || err "RBAC refresh skipped."
 
+# 3b. Enable the Gateway API (Traefik provider + cert-manager support + the
+#     shared Gateway). Additive and idempotent; the Ingress provider stays on.
+if [ -z "${KOREPUSH_SKIP_GATEWAY:-}" ] && [ -d /var/lib/rancher/k3s/server/manifests ]; then
+  log "Ensuring Gateway API is enabled…"
+  cat > /var/lib/rancher/k3s/server/manifests/korepush-traefik-gateway.yaml <<'YAML'
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    providers:
+      kubernetesGateway:
+        enabled: true
+YAML
+  for _ in $(seq 1 40); do $KUBECTL get gatewayclass traefik >/dev/null 2>&1 && break; sleep 3; done
+  if $KUBECTL -n cert-manager get deploy cert-manager >/dev/null 2>&1 &&
+     ! $KUBECTL -n cert-manager get deploy cert-manager -o jsonpath='{.spec.template.spec.containers[0].args}' 2>/dev/null | grep -q enable-gateway-api; then
+    $KUBECTL -n cert-manager patch deploy cert-manager --type=json \
+      -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--enable-gateway-api"}]' >/dev/null 2>&1 || true
+  fi
+  fetch "./deploy/gateway.yaml" "$RAW/deploy/gateway.yaml" "$WORK/gateway.yaml"
+  $KUBECTL apply -f "$WORK/gateway.yaml" || err "Shared Gateway not applied."
+fi
+
 # 4. Pull the latest control plane (migrations run on startup via entrypoint).
 if [ -n "${KOREPUSH_IMAGE:-}" ]; then
   $KUBECTL -n "$NS" set image deploy/korepush "korepush=${KOREPUSH_IMAGE}"

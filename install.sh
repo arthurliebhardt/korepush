@@ -160,7 +160,42 @@ if [ -z "${KOREPUSH_SKIP_CERTMANAGER:-}" ]; then
   done
   "$KUBECTL" get clusterissuer letsencrypt-prod >/dev/null 2>&1 ||
     err "ClusterIssuers not created yet; HTTPS will work once cert-manager is fully up."
+
+  # cert-manager Gateway API support (for HTTP-01 via the shared Gateway). Only
+  # detected at startup, so add the flag idempotently + restart.
+  if ! "$KUBECTL" -n cert-manager get deploy cert-manager \
+      -o jsonpath='{.spec.template.spec.containers[0].args}' 2>/dev/null | grep -q enable-gateway-api; then
+    "$KUBECTL" -n cert-manager patch deploy cert-manager --type=json \
+      -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--enable-gateway-api"}]' >/dev/null 2>&1 || true
+  fi
 fi
+
+# 3a-bis. Enable Traefik's Gateway API provider (additive — the Ingress
+# provider stays on). k3s applies HelmChartConfigs dropped in its manifests dir;
+# the Gateway API CRDs + GatewayClass ship with the k3s traefik-crds chart.
+# Listener ports are Traefik's internal entrypoints (8000/8443), see gateway.yaml.
+log "Enabling Gateway API (Traefik provider)…"
+cat > /var/lib/rancher/k3s/server/manifests/korepush-traefik-gateway.yaml <<'YAML'
+apiVersion: helm.cattle.io/v1
+kind: HelmChartConfig
+metadata:
+  name: traefik
+  namespace: kube-system
+spec:
+  valuesContent: |-
+    providers:
+      kubernetesGateway:
+        enabled: true
+YAML
+for _ in $(seq 1 40); do
+  "$KUBECTL" get gatewayclass traefik >/dev/null 2>&1 && break
+  sleep 3
+done
+GATEWAY="$WORK/gateway.yaml"
+if [ -f "./deploy/gateway.yaml" ]; then cp ./deploy/gateway.yaml "$GATEWAY"
+else curl -sfL "${KOREPUSH_GATEWAY_MANIFEST:-https://raw.githubusercontent.com/arthurliebhardt/korepush/main/deploy/gateway.yaml}" -o "$GATEWAY" || die "Failed to download gateway manifest."
+fi
+"$KUBECTL" apply -f "$GATEWAY" || err "Shared Gateway not applied; routing will fall back to Ingress."
 
 # 3. Fetch the deploy manifest (prefer a local copy when run from a checkout).
 MANIFEST="$WORK/korepush.yaml"

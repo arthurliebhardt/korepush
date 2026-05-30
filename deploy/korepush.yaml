@@ -53,6 +53,11 @@ rules:
   - apiGroups: ["cert-manager.io"]
     resources: ["clusterissuers", "certificates"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Gateway API: the control plane manages the shared Gateway's listeners and
+  # per-app HTTPRoutes (routing + canary traffic-splitting).
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["gateways", "httproutes", "referencegrants"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
