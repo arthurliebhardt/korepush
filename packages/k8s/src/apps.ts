@@ -407,9 +407,25 @@ async function reconcileApp(
       }),
   );
 
-  // Route the auto host via an HTTPRoute on the shared Gateway. On a real owned
-  // base domain, also provision a per-host cert (HTTP-01) on the https listener;
-  // IP / sslip.io bases stay HTTP (no public DNS for the ACME challenge).
+  // Auto-host HTTPRoute + custom-domain routes/certs on the shared Gateway.
+  await ensureAppRoutes(namespace, spaceSlug, app);
+}
+
+/**
+ * Ensure an app's routing on the shared Gateway: the auto-host HTTPRoute (+ a
+ * per-host cert on a real base domain) and the custom-domain HTTPRoutes. Does
+ * NOT touch the Deployment/Service (no pod churn). Idempotent.
+ */
+export async function ensureAppRoutes(
+  namespace: string,
+  spaceSlug: string,
+  app: AppRow,
+) {
+  const labels = managedLabels({
+    "korepush.io/space": spaceSlug,
+    "korepush.io/app": app.slug,
+    app: app.slug,
+  });
   const host = `${app.slug}.${spaceSlug}.${BASE_DOMAIN}`;
   const tlsEnabled = isRealDomain(BASE_DOMAIN);
   if (tlsEnabled) await ensureHttpsCert(host, hostTlsSecret(host), false);
@@ -421,9 +437,7 @@ async function reconcileApp(
     [{ name: app.slug, weight: 100 }],
     labels,
   );
-
-  // Custom domains: their own HTTPRoutes + certs. Best-effort — a domains
-  // hiccup must not fail a deploy/redeploy.
+  // Custom domains best-effort — a domains hiccup must not fail a deploy.
   await reconcileAppDomains(namespace, spaceSlug, app).catch(() => {});
 }
 
@@ -1102,31 +1116,67 @@ export async function detachDatabase(spaceSlug: string, appSlug: string) {
  * startup so a rollout/upgrade brings all apps onto the Gateway. Idempotent.
  */
 export async function ensureAllAppRoutes() {
-  const spaces = await listSpaces();
-  for (const space of spaces) {
-    const rows = await listApps(space.id);
-    for (const app of rows) {
+  for (const space of await listSpaces()) {
+    for (const app of await listApps(space.id)) {
       if (!app.image) continue;
-      try {
-        const labels = managedLabels({
-          "korepush.io/space": space.slug,
-          "korepush.io/app": app.slug,
-          app: app.slug,
-        });
-        const host = `${app.slug}.${space.slug}.${BASE_DOMAIN}`;
-        const tlsEnabled = isRealDomain(BASE_DOMAIN);
-        if (tlsEnabled) await ensureHttpsCert(host, hostTlsSecret(host), false);
-        await reconcileHTTPRoute(
-          space.namespace,
-          app.slug,
-          [host],
-          tlsEnabled ? ["web", "https"] : ["web"],
-          [{ name: app.slug, weight: 100 }],
-          labels,
-        );
-        await reconcileAppDomains(space.namespace, space.slug, app);
-      } catch {
-        // best-effort per app
+      await ensureAppRoutes(space.namespace, space.slug, app).catch(() => {});
+    }
+  }
+}
+
+/* ──────────────────────────────────────────────────────────
+ * Continuous drift reconciler. The DB is the source of truth; this periodically
+ * re-asserts each app's k8s objects, healing drift (a deleted Deployment or
+ * HTTPRoute) WITHOUT churning healthy workloads — it only acts on what's
+ * missing. Single control-plane replica → no leader election; if you ever scale
+ * the control plane > 1, gate this behind a k8s Lease so only one runs.
+ * ────────────────────────────────────────────────────────── */
+let reconcilerTimer: ReturnType<typeof setInterval> | null = null;
+let reconcilerBusy = false;
+
+/** Start the periodic drift reconciler (call once, on control-plane boot). */
+export function startReconciler(intervalMs = 90_000) {
+  if (reconcilerTimer || process.env.KOREPUSH_DISABLE_RECONCILER) return;
+  const tick = async () => {
+    if (reconcilerBusy) return; // never overlap a slow pass
+    reconcilerBusy = true;
+    try {
+      await reconcileDrift();
+    } catch (err) {
+      console.error("[reconciler]", err);
+    } finally {
+      reconcilerBusy = false;
+    }
+  };
+  reconcilerTimer = setInterval(tick, intervalMs);
+  setTimeout(tick, 15_000); // first pass shortly after boot
+}
+
+async function reconcileDrift() {
+  const { apps, custom } = k8sClients();
+  for (const space of await listSpaces()) {
+    for (const app of await listApps(space.id)) {
+      if (!app.image) continue;
+      const [dep, route] = await Promise.all([
+        apps
+          .readNamespacedDeployment({ name: app.slug, namespace: space.namespace })
+          .catch(() => null),
+        custom
+          .getNamespacedCustomObject({
+            group: GW_GROUP,
+            version: GW_VERSION,
+            namespace: space.namespace,
+            plural: "httproutes",
+            name: app.slug,
+          })
+          .catch(() => null),
+      ]);
+      if (!dep) {
+        // Workload vanished → full reconcile recreates Deployment+Service+routes.
+        await reconcileApp(space.namespace, space.slug, app).catch(() => {});
+      } else if (!route) {
+        // Only routing drifted → re-assert routes/certs (no pod impact).
+        await ensureAppRoutes(space.namespace, space.slug, app).catch(() => {});
       }
     }
   }

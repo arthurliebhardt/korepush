@@ -48,6 +48,7 @@ export {
   refreshAppDomainStatus,
   getNodeIp,
   ensureAllAppRoutes,
+  startReconciler,
 } from "./apps";
 export type { CreateAppInput, CreateGitAppInput } from "./apps";
 export {
