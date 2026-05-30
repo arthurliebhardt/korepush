@@ -210,25 +210,26 @@ spec:
     - port: 80
       targetPort: 3000
 ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+# Host-less (catch-all) HTTPRoute on the shared Gateway's HTTP listener, so the
+# control plane is reachable at the raw VPS IP. A custom-domain HTTPRoute
+# (korepush-cp) is ADDED later via Settings; the catch-all stays so the IP keeps
+# working and you can't get locked out.
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
 metadata:
-  name: korepush
+  name: korepush-catchall
   namespace: korepush-system
+  labels:
+    app.kubernetes.io/managed-by: korepush
 spec:
-  # Host-less (catch-all) so the control plane is reachable at the raw VPS IP
-  # immediately after install. A host rule for a custom domain is ADDED later
-  # via Settings (keeping this catch-all, so the IP keeps working too).
+  parentRefs:
+    - name: korepush
+      namespace: kube-system
+      sectionName: web
   rules:
-    - http:
-        paths:
-          - path: /
-            pathType: Prefix
-            backend:
-              service:
-                name: korepush
-                port:
-                  number: 80
+    - backendRefs:
+        - name: korepush
+          port: 80
 ---
 # ---- In-cluster image registry (build target) ----
 # Builds push here by the svc-DNS name; containerd pulls the SAME name via a

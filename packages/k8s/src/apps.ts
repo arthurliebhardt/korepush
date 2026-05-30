@@ -3,7 +3,7 @@ import { promises as dns } from "node:dns";
 import { and, desc, eq } from "drizzle-orm";
 import { db, schema } from "@korepush/db";
 import { k8sClients, managedLabels } from "./client";
-import { getSpaceBySlug } from "./spaces";
+import { getSpaceBySlug, listSpaces } from "./spaces";
 import { slugify } from "./util";
 import {
   createBuildJob,
@@ -15,6 +15,217 @@ import {
 const BASE_DOMAIN = process.env.KOREPUSH_BASE_DOMAIN ?? "localhost";
 const CM_GROUP = "cert-manager.io";
 const CM_VERSION = "v1";
+// The shared Gateway (Gateway API) lives in kube-system with Traefik. Routing
+// is HTTPRoutes attached to its listeners ("web" HTTP, "https" HTTPS).
+const GW_GROUP = "gateway.networking.k8s.io";
+const GW_VERSION = "v1";
+const GW_NAME = "korepush";
+const GW_NS = "kube-system";
+
+type HttpBackend = { name: string; weight: number };
+
+/**
+ * Create/replace an HTTPRoute in `namespace` attaching to the shared Gateway's
+ * listener `sections` (e.g. ["web"] or ["web","https"]), routing the given
+ * hostnames (empty = host-less catch-all) to weighted same-namespace Services.
+ */
+export async function reconcileHTTPRoute(
+  namespace: string,
+  name: string,
+  hostnames: string[],
+  sections: string[],
+  backends: HttpBackend[],
+  labels: Record<string, string>,
+) {
+  const { custom } = k8sClients();
+  const body: Record<string, unknown> = {
+    apiVersion: `${GW_GROUP}/${GW_VERSION}`,
+    kind: "HTTPRoute",
+    metadata: { name, namespace, labels },
+    spec: {
+      parentRefs: sections.map((s) => ({
+        name: GW_NAME,
+        namespace: GW_NS,
+        sectionName: s,
+      })),
+      ...(hostnames.length ? { hostnames } : {}),
+      rules: [
+        {
+          backendRefs: backends.map((b) => ({
+            name: b.name,
+            port: 80,
+            weight: b.weight,
+          })),
+        },
+      ],
+    },
+  };
+  const existing = (await custom
+    .getNamespacedCustomObject({
+      group: GW_GROUP,
+      version: GW_VERSION,
+      namespace,
+      plural: "httproutes",
+      name,
+    })
+    .catch(() => null)) as { metadata?: { resourceVersion?: string } } | null;
+  if (!existing) {
+    await custom.createNamespacedCustomObject({
+      group: GW_GROUP,
+      version: GW_VERSION,
+      namespace,
+      plural: "httproutes",
+      body,
+    });
+  } else {
+    (body.metadata as Record<string, unknown>).resourceVersion =
+      existing.metadata?.resourceVersion;
+    await custom.replaceNamespacedCustomObject({
+      group: GW_GROUP,
+      version: GW_VERSION,
+      namespace,
+      plural: "httproutes",
+      name,
+      body,
+    });
+  }
+}
+
+async function deleteHTTPRoute(namespace: string, name: string) {
+  await k8sClients()
+    .custom.deleteNamespacedCustomObject({
+      group: GW_GROUP,
+      version: GW_VERSION,
+      namespace,
+      plural: "httproutes",
+      name,
+    })
+    .catch(() => {});
+}
+
+/** Globally-unique TLS Secret name for a hostname (certs live in kube-system). */
+export function hostTlsSecret(host: string): string {
+  const h = host.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return `tls-${h}`.slice(0, 253);
+}
+
+// Add/remove a cert Secret on the shared Gateway's single "https" listener
+// (Traefik selects by SNI). Conflict-safe (the Gateway is a shared object).
+async function patchGatewayHttpsCert(secretName: string, add: boolean) {
+  const { custom } = k8sClients();
+  type Listener = Record<string, unknown> & {
+    name: string;
+    tls?: { certificateRefs?: Array<{ name: string }> };
+  };
+  for (let attempt = 0; attempt < 6; attempt++) {
+    const gw = (await custom.getNamespacedCustomObject({
+      group: GW_GROUP,
+      version: GW_VERSION,
+      namespace: GW_NS,
+      plural: "gateways",
+      name: GW_NAME,
+    })) as { spec?: { listeners?: Listener[] } };
+    let listeners = [...(gw.spec?.listeners ?? [])];
+    const https = listeners.find((l) => l.name === "https");
+    const ref = { kind: "Secret", group: "", name: secretName };
+    if (add) {
+      if (!https) {
+        listeners.push({
+          name: "https",
+          protocol: "HTTPS",
+          port: 8443,
+          tls: { mode: "Terminate", certificateRefs: [ref] },
+          allowedRoutes: { namespaces: { from: "All" } },
+        } as Listener);
+      } else {
+        const refs = (https.tls!.certificateRefs ??= []);
+        if (!refs.some((r) => r.name === secretName)) refs.push(ref);
+      }
+    } else if (https) {
+      https.tls!.certificateRefs = (https.tls!.certificateRefs ?? []).filter(
+        (r) => r.name !== secretName,
+      );
+      if (https.tls!.certificateRefs.length === 0) {
+        listeners = listeners.filter((l) => l.name !== "https");
+      }
+    } else {
+      return; // nothing to remove
+    }
+    const body = { ...gw, spec: { ...gw.spec, listeners } };
+    try {
+      await custom.replaceNamespacedCustomObject({
+        group: GW_GROUP,
+        version: GW_VERSION,
+        namespace: GW_NS,
+        plural: "gateways",
+        name: GW_NAME,
+        body,
+      });
+      return;
+    } catch (e) {
+      if ((e as { code?: number })?.code === 409) continue; // re-read + retry
+      throw e;
+    }
+  }
+}
+
+/** Provision a cert for `host` (kube-system) and put it on the https listener. */
+export async function ensureHttpsCert(
+  host: string,
+  secretName: string,
+  useStaging: boolean,
+) {
+  const { custom } = k8sClients();
+  const existing = await custom
+    .getNamespacedCustomObject({
+      group: CM_GROUP,
+      version: CM_VERSION,
+      namespace: GW_NS,
+      plural: "certificates",
+      name: secretName,
+    })
+    .catch(() => null);
+  if (!existing) {
+    await custom.createNamespacedCustomObject({
+      group: CM_GROUP,
+      version: CM_VERSION,
+      namespace: GW_NS,
+      plural: "certificates",
+      body: {
+        apiVersion: `${CM_GROUP}/${CM_VERSION}`,
+        kind: "Certificate",
+        metadata: { name: secretName, namespace: GW_NS, labels: managedLabels({}) },
+        spec: {
+          secretName,
+          dnsNames: [host],
+          issuerRef: {
+            name: useStaging ? "letsencrypt-staging" : "letsencrypt-prod",
+            kind: "ClusterIssuer",
+            group: CM_GROUP,
+          },
+        },
+      },
+    });
+  }
+  await patchGatewayHttpsCert(secretName, true);
+}
+
+async function removeHttpsCert(secretName: string) {
+  await patchGatewayHttpsCert(secretName, false);
+  const { custom, core } = k8sClients();
+  await custom
+    .deleteNamespacedCustomObject({
+      group: CM_GROUP,
+      version: CM_VERSION,
+      namespace: GW_NS,
+      plural: "certificates",
+      name: secretName,
+    })
+    .catch(() => {});
+  await core
+    .deleteNamespacedSecret({ name: secretName, namespace: GW_NS })
+    .catch(() => {});
+}
 
 export async function listApps(spaceId: string) {
   return db
@@ -99,7 +310,7 @@ async function reconcileApp(
   spaceSlug: string,
   app: AppRow,
 ) {
-  const { apps, core, net } = k8sClients();
+  const { apps, core } = k8sClients();
   const labels = managedLabels({
     "korepush.io/space": spaceSlug,
     "korepush.io/app": app.slug,
@@ -196,70 +407,23 @@ async function reconcileApp(
       }),
   );
 
+  // Route the auto host via an HTTPRoute on the shared Gateway. On a real owned
+  // base domain, also provision a per-host cert (HTTP-01) on the https listener;
+  // IP / sslip.io bases stay HTTP (no public DNS for the ACME challenge).
   const host = `${app.slug}.${spaceSlug}.${BASE_DOMAIN}`;
-  // On a real owned base domain, provision a per-host Let's Encrypt cert via
-  // cert-manager (HTTP-01). Skip for IP / sslip.io bases — there's no public
-  // DNS to satisfy the ACME challenge, so those stay HTTP.
   const tlsEnabled = isRealDomain(BASE_DOMAIN);
-  const ingressAnnotations = tlsEnabled
-    ? { "cert-manager.io/cluster-issuer": "letsencrypt-prod" }
-    : undefined;
-  const ingressSpec = {
-    rules: [
-      {
-        host,
-        http: {
-          paths: [
-            {
-              path: "/",
-              pathType: "Prefix",
-              backend: { service: { name: app.slug, port: { number: 80 } } },
-            },
-          ],
-        },
-      },
-    ],
-    ...(tlsEnabled
-      ? { tls: [{ hosts: [host], secretName: `${app.slug}-tls` }] }
-      : {}),
-  };
-  // Replace-on-exists (not create-only): a redeploy backfills TLS onto an app
-  // whose Ingress predates HTTPS being enabled for the space's base domain.
-  const existingIng = await net
-    .readNamespacedIngress({ name: app.slug, namespace })
-    .catch(() => null);
-  if (!existingIng) {
-    await net.createNamespacedIngress({
-      namespace,
-      body: {
-        metadata: {
-          name: app.slug,
-          namespace,
-          labels,
-          ...(ingressAnnotations ? { annotations: ingressAnnotations } : {}),
-        },
-        spec: ingressSpec,
-      },
-    });
-  } else {
-    existingIng.metadata = {
-      ...existingIng.metadata,
-      labels,
-      annotations: {
-        ...existingIng.metadata?.annotations,
-        ...(ingressAnnotations ?? {}),
-      },
-    };
-    existingIng.spec = ingressSpec;
-    await net.replaceNamespacedIngress({
-      name: app.slug,
-      namespace,
-      body: existingIng,
-    });
-  }
+  if (tlsEnabled) await ensureHttpsCert(host, hostTlsSecret(host), false);
+  await reconcileHTTPRoute(
+    namespace,
+    app.slug,
+    [host],
+    tlsEnabled ? ["web", "https"] : ["web"],
+    [{ name: app.slug, weight: 100 }],
+    labels,
+  );
 
-  // Custom domains live on a separate Ingress with directly-managed certs.
-  // Best-effort: a domains hiccup must not fail a deploy/redeploy.
+  // Custom domains: their own HTTPRoutes + certs. Best-effort — a domains
+  // hiccup must not fail a deploy/redeploy.
   await reconcileAppDomains(namespace, spaceSlug, app).catch(() => {});
 }
 
@@ -316,102 +480,39 @@ async function dnsPointsHere(
 
 type AppDomainRow = typeof schema.appDomains.$inferSelect;
 
-async function ensureCertificate(
-  namespace: string,
-  appSlug: string,
-  d: AppDomainRow,
-) {
-  const { custom } = k8sClients();
-  const existing = await custom
-    .getNamespacedCustomObject({
-      group: CM_GROUP,
-      version: CM_VERSION,
-      namespace,
-      plural: "certificates",
-      name: d.secretName,
-    })
-    .catch(() => null);
-  if (existing) return; // issuer is fixed at add-time (v1)
-  await custom.createNamespacedCustomObject({
-    group: CM_GROUP,
-    version: CM_VERSION,
-    namespace,
-    plural: "certificates",
-    body: {
-      apiVersion: `${CM_GROUP}/${CM_VERSION}`,
-      kind: "Certificate",
-      metadata: {
-        name: d.secretName,
-        namespace,
-        labels: managedLabels({ "korepush.io/app": appSlug }),
-      },
-      spec: {
-        secretName: d.secretName,
-        dnsNames: [d.host],
-        issuerRef: {
-          name: d.useStaging ? "letsencrypt-staging" : "letsencrypt-prod",
-          kind: "ClusterIssuer",
-          group: CM_GROUP,
-        },
-      },
-    },
-  });
-}
-
 async function reconcileAppDomains(
   namespace: string,
   spaceSlug: string,
   app: AppRow,
 ) {
-  const { net } = k8sClients();
-  const ingName = `${app.slug}-domains`;
+  const routeName = `${app.slug}-domains`;
   const domains = await db
     .select()
     .from(schema.appDomains)
     .where(eq(schema.appDomains.appId, app.id));
 
   if (domains.length === 0) {
-    await net
-      .deleteNamespacedIngress({ name: ingName, namespace })
-      .catch(() => {});
+    await deleteHTTPRoute(namespace, routeName);
     return;
   }
 
   // Only domains past the DNS precheck (status != pending) request a cert + TLS.
   const active = domains.filter((d) => d.status !== "pending");
   for (const d of active) {
-    await ensureCertificate(namespace, app.slug, d).catch(() => {});
+    await ensureHttpsCert(d.host, d.secretName, d.useStaging).catch(() => {});
   }
 
+  // One HTTPRoute for all the app's custom hostnames → its Service. Active
+  // domains also attach to the https listener (their cert is SNI-selected).
   const labels = managedLabels({ "korepush.io/app": app.slug });
-  const rules = domains.map((d) => ({
-    host: d.host,
-    http: {
-      paths: [
-        {
-          path: "/",
-          pathType: "Prefix",
-          backend: { service: { name: app.slug, port: { number: 80 } } },
-        },
-      ],
-    },
-  }));
-  const tls = active.map((d) => ({ hosts: [d.host], secretName: d.secretName }));
-  const spec = { rules, ...(tls.length ? { tls } : {}) };
-
-  const existing = await net
-    .readNamespacedIngress({ name: ingName, namespace })
-    .catch(() => null);
-  if (!existing) {
-    await net.createNamespacedIngress({
-      namespace,
-      body: { metadata: { name: ingName, namespace, labels }, spec },
-    });
-  } else {
-    existing.metadata = { ...existing.metadata, labels };
-    existing.spec = spec;
-    await net.replaceNamespacedIngress({ name: ingName, namespace, body: existing });
-  }
+  await reconcileHTTPRoute(
+    namespace,
+    routeName,
+    domains.map((d) => d.host),
+    active.length ? ["web", "https"] : ["web"],
+    [{ name: app.slug, weight: 100 }],
+    labels,
+  );
 }
 
 const DOMAIN_RE = /^(?!-)[a-z0-9-]+(\.[a-z0-9-]+)+$/;
@@ -477,19 +578,7 @@ export async function removeAppDomain(
   if (!d) return;
 
   await db.delete(schema.appDomains).where(eq(schema.appDomains.id, d.id));
-  const { custom, core } = k8sClients();
-  await custom
-    .deleteNamespacedCustomObject({
-      group: CM_GROUP,
-      version: CM_VERSION,
-      namespace: space.namespace,
-      plural: "certificates",
-      name: d.secretName,
-    })
-    .catch(() => {});
-  await core
-    .deleteNamespacedSecret({ name: d.secretName, namespace: space.namespace })
-    .catch(() => {});
+  await removeHttpsCert(d.secretName);
   await reconcileAppDomains(space.namespace, space.slug, app);
 }
 
@@ -541,7 +630,7 @@ export async function refreshAppDomainStatus(
       .getNamespacedCustomObject({
         group: CM_GROUP,
         version: CM_VERSION,
-        namespace: space.namespace,
+        namespace: GW_NS, // certs live with the shared Gateway in kube-system
         plural: "certificates",
         name: d.secretName,
       })
@@ -1007,45 +1096,67 @@ export async function detachDatabase(spaceSlug: string, appSlug: string) {
   }
 }
 
+/**
+ * Ensure every app's HTTPRoute(s) + cert exist on the shared Gateway — WITHOUT
+ * touching Deployments/Services (no pod churn). Run once on control-plane
+ * startup so a rollout/upgrade brings all apps onto the Gateway. Idempotent.
+ */
+export async function ensureAllAppRoutes() {
+  const spaces = await listSpaces();
+  for (const space of spaces) {
+    const rows = await listApps(space.id);
+    for (const app of rows) {
+      if (!app.image) continue;
+      try {
+        const labels = managedLabels({
+          "korepush.io/space": space.slug,
+          "korepush.io/app": app.slug,
+          app: app.slug,
+        });
+        const host = `${app.slug}.${space.slug}.${BASE_DOMAIN}`;
+        const tlsEnabled = isRealDomain(BASE_DOMAIN);
+        if (tlsEnabled) await ensureHttpsCert(host, hostTlsSecret(host), false);
+        await reconcileHTTPRoute(
+          space.namespace,
+          app.slug,
+          [host],
+          tlsEnabled ? ["web", "https"] : ["web"],
+          [{ name: app.slug, weight: 100 }],
+          labels,
+        );
+        await reconcileAppDomains(space.namespace, space.slug, app);
+      } catch {
+        // best-effort per app
+      }
+    }
+  }
+}
+
 export async function deleteApp(spaceSlug: string, slug: string) {
   const space = await getSpaceBySlug(spaceSlug);
   if (!space) return;
   const app = await getApp(space.id, slug);
   if (!app) return;
 
-  // Custom-domain certs/secrets aren't garbage-collected by deleting the
-  // Ingress, so remove them explicitly (the rows cascade with the app).
   const domains = await db
     .select()
     .from(schema.appDomains)
     .where(eq(schema.appDomains.appId, app.id));
 
-  const { apps, core, net, custom } = k8sClients();
+  const { apps, core } = k8sClients();
+  const autoHost = `${slug}.${space.slug}.${BASE_DOMAIN}`;
   await Promise.allSettled([
     apps.deleteNamespacedDeployment({ name: slug, namespace: space.namespace }),
     core.deleteNamespacedService({ name: slug, namespace: space.namespace }),
-    net.deleteNamespacedIngress({ name: slug, namespace: space.namespace }),
-    net.deleteNamespacedIngress({
-      name: `${slug}-domains`,
-      namespace: space.namespace,
-    }),
+    deleteHTTPRoute(space.namespace, slug),
+    deleteHTTPRoute(space.namespace, `${slug}-domains`),
     core.deleteNamespacedSecret({
       name: `${slug}-env`,
       namespace: space.namespace,
     }),
-    ...domains.flatMap((d) => [
-      custom.deleteNamespacedCustomObject({
-        group: CM_GROUP,
-        version: CM_VERSION,
-        namespace: space.namespace,
-        plural: "certificates",
-        name: d.secretName,
-      }),
-      core.deleteNamespacedSecret({
-        name: d.secretName,
-        namespace: space.namespace,
-      }),
-    ]),
+    // Per-host certs live in kube-system on the shared Gateway's https listener.
+    removeHttpsCert(hostTlsSecret(autoHost)),
+    ...domains.map((d) => removeHttpsCert(d.secretName)),
   ]);
   await db.delete(schema.apps).where(eq(schema.apps.id, app.id));
 }

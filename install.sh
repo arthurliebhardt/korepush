@@ -254,19 +254,35 @@ sed -i \
 log "Deploying korepush…"
 "$KUBECTL" apply -f "$MANIFEST"
 
-# In domain mode, attach the host to the (otherwise catch-all) Ingress rule and
-# — unless cert-manager was skipped — annotate it for Let's Encrypt + add a TLS
-# block so HTTPS provisions automatically once DNS points here.
-if [ "$MODE" = "domain" ]; then
+# In domain mode, route the domain to the control plane and (unless cert-manager
+# was skipped) provision its cert on the shared Gateway's https listener, so
+# https://<domain> works once DNS points here. The host-less catch-all HTTPRoute
+# keeps the raw IP serving over HTTP.
+if [ "$MODE" = "domain" ] && [ -z "${KOREPUSH_SKIP_GATEWAY:-}" ]; then
   if [ -z "${KOREPUSH_SKIP_CERTMANAGER:-}" ]; then
-    "$KUBECTL" -n korepush-system patch ingress korepush --type=json -p "[
-      {\"op\":\"add\",\"path\":\"/spec/rules/0/host\",\"value\":\"${INGRESS_HOST}\"},
-      {\"op\":\"add\",\"path\":\"/metadata/annotations\",\"value\":{\"cert-manager.io/cluster-issuer\":\"letsencrypt-prod\"}},
-      {\"op\":\"add\",\"path\":\"/spec/tls\",\"value\":[{\"hosts\":[\"${INGRESS_HOST}\"],\"secretName\":\"korepush-panel-tls\"}]}
-    ]"
-  else
-    "$KUBECTL" -n korepush-system patch ingress korepush --type=json \
-      -p "[{\"op\":\"add\",\"path\":\"/spec/rules/0/host\",\"value\":\"${INGRESS_HOST}\"}]"
+    log "Provisioning HTTPS for ${INGRESS_HOST}…"
+    "$KUBECTL" -n kube-system patch gateway korepush --type=json \
+      -p "[{\"op\":\"add\",\"path\":\"/spec/listeners/-\",\"value\":{\"name\":\"https\",\"protocol\":\"HTTPS\",\"port\":8443,\"tls\":{\"mode\":\"Terminate\",\"certificateRefs\":[{\"kind\":\"Secret\",\"group\":\"\",\"name\":\"korepush-panel-tls\"}]},\"allowedRoutes\":{\"namespaces\":{\"from\":\"All\"}}}}]" 2>/dev/null || true
+    "$KUBECTL" apply -f - <<YAML || err "Control-plane domain route not applied."
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata: { name: korepush-panel-tls, namespace: kube-system }
+spec:
+  secretName: korepush-panel-tls
+  dnsNames: ["${INGRESS_HOST}"]
+  issuerRef: { name: letsencrypt-prod, kind: ClusterIssuer, group: cert-manager.io }
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata: { name: korepush-cp, namespace: korepush-system, labels: { app.kubernetes.io/managed-by: korepush } }
+spec:
+  parentRefs:
+    - { name: korepush, namespace: kube-system, sectionName: web }
+    - { name: korepush, namespace: kube-system, sectionName: https }
+  hostnames: ["${INGRESS_HOST}"]
+  rules:
+    - backendRefs: [{ name: korepush, port: 80 }]
+YAML
   fi
 fi
 

@@ -19,12 +19,12 @@ spec:
       name: letsencrypt-prod-account
     solvers:
       - http01:
-          ingress:
-            class: traefik
-            ingressTemplate:
-              metadata:
-                annotations:
-                  traefik.ingress.kubernetes.io/router.priority: "1000"
+          gatewayHTTPRoute:
+            parentRefs:
+              - name: korepush
+                namespace: kube-system
+                kind: Gateway
+                sectionName: web
 ---
 apiVersion: cert-manager.io/v1
 kind: ClusterIssuer
@@ -38,9 +38,9 @@ spec:
       name: letsencrypt-staging-account
     solvers:
       - http01:
-          ingress:
-            class: traefik
-            ingressTemplate:
-              metadata:
-                annotations:
-                  traefik.ingress.kubernetes.io/router.priority: "1000"
+          gatewayHTTPRoute:
+            parentRefs:
+              - name: korepush
+                namespace: kube-system
+                kind: Gateway
+                sectionName: web

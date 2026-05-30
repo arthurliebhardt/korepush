@@ -1103,19 +1103,25 @@ spec:
   ports:
     - { name: http, port: 3000, targetPort: 3000 }
 ---
-apiVersion: networking.k8s.io/v1
-kind: Ingress
+# Grafana under /grafana on the shared Gateway (web HTTP listener; on a custom
+# domain it's served over the panel cert via SNI on the https listener too).
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
 metadata:
   name: grafana
   namespace: korepush-monitoring
+  labels:
+    app.kubernetes.io/managed-by: korepush
 spec:
+  parentRefs:
+    - name: korepush
+      namespace: kube-system
+      sectionName: web
   rules:
-    - http:
-        paths:
-          - path: /grafana
-            pathType: Prefix
-            backend:
-              service:
-                name: grafana
-                port:
-                  number: 3000
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /grafana
+      backendRefs:
+        - name: grafana
+          port: 3000

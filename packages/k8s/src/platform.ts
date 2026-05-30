@@ -1,8 +1,10 @@
 import { k8sClients } from "./client";
+import { reconcileHTTPRoute, ensureHttpsCert } from "./apps";
 
 // The control plane manages its own k8s objects (created by install.sh).
 const NS = "korepush-system";
-const INGRESS = "korepush";
+const SERVICE = "korepush";
+const CP_ROUTE = "korepush-cp"; // HTTPRoute for the control-plane custom domain
 const SECRET = "korepush-app";
 const DEPLOYMENT = "korepush";
 const PANEL_TLS_SECRET = "korepush-panel-tls";
@@ -12,23 +14,32 @@ const MONITORING_NS = "korepush-monitoring";
 const GRAFANA_DEPLOYMENT = "grafana";
 const CM_GROUP = "cert-manager.io";
 const CM_VERSION = "v1";
+const GW_GROUP = "gateway.networking.k8s.io";
+const GW_VERSION = "v1";
+const MANAGED = { "app.kubernetes.io/managed-by": "korepush" };
 
 const DOMAIN_RE = /^(?!-)[a-z0-9-]+(\.[a-z0-9-]+)+$/i;
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 
 export type ControlPlaneInfo = {
-  /** Host rules currently on the control-plane Ingress (empty = catch-all/IP). */
+  /** Custom domain hostnames currently routed to the control plane. */
   hosts: string[];
   /** Origins better-auth currently trusts. */
   trustedOrigins: string[];
 };
 
 export async function getControlPlaneInfo(): Promise<ControlPlaneInfo> {
-  const { net, core } = k8sClients();
-  const ing = await net.readNamespacedIngress({ name: INGRESS, namespace: NS });
-  const hosts = (ing.spec?.rules ?? [])
-    .map((r) => r.host)
-    .filter((h): h is string => !!h);
+  const { custom, core } = k8sClients();
+  const route = (await custom
+    .getNamespacedCustomObject({
+      group: GW_GROUP,
+      version: GW_VERSION,
+      namespace: NS,
+      plural: "httproutes",
+      name: CP_ROUTE,
+    })
+    .catch(() => null)) as { spec?: { hostnames?: string[] } } | null;
+  const hosts = route?.spec?.hostnames ?? [];
 
   const sec = await core.readNamespacedSecret({ name: SECRET, namespace: NS });
   const trustedOrigins = decodeSecretCsv(sec.data?.KOREPUSH_TRUSTED_ORIGINS);
@@ -53,39 +64,21 @@ export async function setControlPlaneDomain(
     throw new Error("Enter a valid domain, e.g. kube.example.com");
   }
   const issuer = opts.useStaging ? "letsencrypt-staging" : "letsencrypt-prod";
-  const { net, core, apps, custom } = k8sClients();
+  const { core, apps, custom } = k8sClients();
 
-  // 1. Add a host rule for the domain (keep existing rules, incl. catch-all)
-  //    and attach cert-manager annotation + a TLS block for the domain. The
-  //    catch-all rule stays HTTP-only (no host → no cert), so http://<ip>
-  //    keeps working as a lockout-safety net.
-  const ing = await net.readNamespacedIngress({ name: INGRESS, namespace: NS });
-  const rules = ing.spec?.rules ?? [];
-  if (!rules.some((r) => r.host === domain)) {
-    rules.push({
-      host: domain,
-      http: {
-        paths: [
-          {
-            path: "/",
-            pathType: "Prefix",
-            backend: { service: { name: INGRESS, port: { number: 80 } } },
-          },
-        ],
-      },
-    });
-  }
-  const tls = ing.spec?.tls ?? [];
-  if (!tls.some((t) => (t.hosts ?? []).includes(domain))) {
-    tls.push({ hosts: [domain], secretName: PANEL_TLS_SECRET });
-  }
-  ing.metadata = ing.metadata ?? {};
-  ing.metadata.annotations = {
-    ...ing.metadata.annotations,
-    "cert-manager.io/cluster-issuer": issuer,
-  };
-  ing.spec = { ...ing.spec, rules, tls };
-  await net.replaceNamespacedIngress({ name: INGRESS, namespace: NS, body: ing });
+  // 1. Provision a cert for the domain (on the shared Gateway's https listener,
+  //    SNI-selected) and route it to the control plane via an HTTPRoute on the
+  //    web (HTTP) + https listeners. The host-less catch-all HTTPRoute (raw-IP)
+  //    is static + untouched, so http://<ip> never locks you out.
+  await ensureHttpsCert(domain, PANEL_TLS_SECRET, opts.useStaging ?? false);
+  await reconcileHTTPRoute(
+    NS,
+    CP_ROUTE,
+    [domain],
+    ["web", "https"],
+    [{ name: SERVICE, weight: 100 }],
+    MANAGED,
+  );
 
   // 2. Trust the domain's origins, use it as the app base domain, and make
   //    https the canonical control-plane URL.

@@ -47,6 +47,7 @@ export {
   listAppDomains,
   refreshAppDomainStatus,
   getNodeIp,
+  ensureAllAppRoutes,
 } from "./apps";
 export type { CreateAppInput, CreateGitAppInput } from "./apps";
 export {
