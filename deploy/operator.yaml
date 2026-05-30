@@ -1,0 +1,89 @@
+# korepush operator — watches KoreApp CRs and reconciles them into
+# Deployment + Service + HTTPRoute (+ certs in M-OP2). Runs as its own
+# Deployment in korepush-system. Placeholders (__UPPER__) are substituted by
+# install.sh before `kubectl apply`.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: korepush-operator
+  namespace: korepush-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: korepush-operator
+rules:
+  # The CRs it owns: spec (read/watch), status + finalizers (write).
+  - apiGroups: ["korepush.io"]
+    resources: ["koreapps", "koreapps/status", "koreapps/finalizers"]
+    verbs: ["get", "list", "watch", "update", "patch"]
+  # Workloads it materialises from a KoreApp spec.
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Read-only: env secrets are referenced (never created) here; pod/deployment
+  # status feeds the CR's readyReplicas.
+  - apiGroups: [""]
+    resources: ["secrets", "pods"]
+    verbs: ["get", "list", "watch"]
+  # Routing: per-app HTTPRoutes on the shared Gateway (+ read the Gateway to
+  # patch shared https-listener certs in M-OP2).
+  - apiGroups: ["gateway.networking.k8s.io"]
+    resources: ["httproutes", "gateways"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Per-host TLS certificates (custom domains) — M-OP2.
+  - apiGroups: ["cert-manager.io"]
+    resources: ["certificates"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Leader election (replicas:1 today, but the Lease is cheap and future-proofs HA).
+  - apiGroups: ["coordination.k8s.io"]
+    resources: ["leases"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: korepush-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: korepush-operator
+subjects:
+  - kind: ServiceAccount
+    name: korepush-operator
+    namespace: korepush-system
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: korepush-operator
+  namespace: korepush-system
+  labels: { app: korepush-operator }
+spec:
+  replicas: 1
+  # Singleton: never run two reconcilers against the shared Gateway at once.
+  strategy: { type: Recreate }
+  selector:
+    matchLabels: { app: korepush-operator }
+  template:
+    metadata:
+      labels: { app: korepush-operator }
+    spec:
+      serviceAccountName: korepush-operator
+      containers:
+        - name: operator
+          image: __KOREPUSH_OPERATOR_IMAGE__
+          env:
+            # Base domain for derived per-app hostnames (<app>.<space>.<base>);
+            # kept in sync with the control plane via the shared secret.
+            - name: KOREPUSH_BASE_DOMAIN
+              valueFrom:
+                secretKeyRef:
+                  name: korepush-app
+                  key: KOREPUSH_BASE_DOMAIN
+          resources:
+            requests: { cpu: "20m", memory: "64Mi" }
+            limits: { cpu: "500m", memory: "256Mi" }

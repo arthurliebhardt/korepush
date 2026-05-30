@@ -1,0 +1,150 @@
+# The KoreApp CRD — the GitOps source of truth for an app's runtime spec. The
+# korepush operator watches these and reconciles them into Deployment + Service
+# + HTTPRoute (+ certs). `metadata.name` = app slug; lives in the space's
+# namespace (ks-<space>). spec.image is PATCHed by the build pipeline (field
+# manager "korepush-builder") for git apps; set directly for image apps.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: koreapps.korepush.io
+  labels:
+    app.kubernetes.io/managed-by: korepush
+spec:
+  group: korepush.io
+  scope: Namespaced
+  names:
+    kind: KoreApp
+    plural: koreapps
+    singular: koreapp
+    shortNames: [ka]
+    categories: [korepush, all]
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      subresources:
+        status: {}
+        scale:
+          specReplicasPath: .spec.replicas
+          statusReplicasPath: .status.replicas
+          labelSelectorPath: .status.selector
+      additionalPrinterColumns:
+        - { name: Ready, type: string, jsonPath: '.status.conditions[?(@.type=="Ready")].status' }
+        - { name: Phase, type: string, jsonPath: .status.phase }
+        - { name: URL, type: string, jsonPath: .status.url }
+        - { name: Replicas, type: integer, jsonPath: .status.readyReplicas }
+        - { name: Image, type: string, priority: 1, jsonPath: .status.currentImage }
+        - { name: Age, type: date, jsonPath: .metadata.creationTimestamp }
+      schema:
+        openAPIV3Schema:
+          type: object
+          required: [spec]
+          properties:
+            spec:
+              type: object
+              required: [source, port]
+              x-kubernetes-validations:
+                - rule: "self.source != 'image' || has(self.image)"
+                  message: "spec.image is required when source is 'image'"
+                - rule: "self.source != 'git' || has(self.git)"
+                  message: "spec.git is required when source is 'git'"
+              properties:
+                source: { type: string, enum: [image, git], default: image }
+                image: { type: string, maxLength: 512 }
+                git:
+                  type: object
+                  required: [repoUrl]
+                  properties:
+                    repoUrl: { type: string, pattern: '^https://' }
+                    ref: { type: string, default: main }
+                    rootDir: { type: string }
+                    installCmd: { type: string }
+                    buildCmd: { type: string }
+                    startCmd: { type: string }
+                port: { type: integer, default: 3000, minimum: 1, maximum: 65535 }
+                replicas: { type: integer, default: 1, minimum: 0, maximum: 50 }
+                env:
+                  type: array
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [name]
+                  items:
+                    type: object
+                    required: [name]
+                    x-kubernetes-validations:
+                      - { rule: "has(self.value) != has(self.secretKeyRef)", message: "set exactly one of value or secretKeyRef" }
+                    properties:
+                      name: { type: string, pattern: '^[A-Za-z_][A-Za-z0-9_]*$' }
+                      value: { type: string }
+                      secretKeyRef:
+                        type: object
+                        required: [name, key]
+                        properties: { name: { type: string }, key: { type: string } }
+                envFrom:
+                  type: array
+                  items:
+                    type: object
+                    required: [secretRef]
+                    properties:
+                      secretRef:
+                        type: object
+                        required: [name]
+                        properties: { name: { type: string } }
+                domains:
+                  type: array
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [host]
+                  items:
+                    type: object
+                    required: [host]
+                    properties:
+                      # RE2 (no lookaheads): per-label [a-z0-9] start/end, hyphens
+                      # interior-only, ≥2 labels (a dot).
+                      host: { type: string, pattern: '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$' }
+                      staging: { type: boolean, default: false }
+                database:
+                  type: object
+                  required: [name]
+                  properties:
+                    name: { type: string }
+                    envVar: { type: string, default: DATABASE_URL }
+                canary:
+                  type: object
+                  required: [image, weight]
+                  properties:
+                    image: { type: string, maxLength: 512 }
+                    weight: { type: integer, minimum: 0, maximum: 100 }
+            status:
+              type: object
+              properties:
+                phase: { type: string, enum: [Pending, Building, Progressing, Running, Degraded, Failed, Stopped] }
+                observedGeneration: { type: integer, format: int64 }
+                currentImage: { type: string }
+                url: { type: string }
+                replicas: { type: integer }
+                readyReplicas: { type: integer }
+                selector: { type: string }
+                conditions:
+                  type: array
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [type]
+                  items:
+                    type: object
+                    required: [type, status, lastTransitionTime, reason, message]
+                    properties:
+                      type: { type: string, maxLength: 316 }
+                      status: { type: string, enum: ["True", "False", "Unknown"] }
+                      observedGeneration: { type: integer, format: int64 }
+                      lastTransitionTime: { type: string, format: date-time }
+                      reason: { type: string, maxLength: 1024 }
+                      message: { type: string, maxLength: 32768 }
+                domains:
+                  type: array
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [host]
+                  items:
+                    type: object
+                    required: [host]
+                    properties:
+                      host: { type: string }
+                      phase: { type: string, enum: [Pending, Issuing, Active, Error] }
+                      message: { type: string }

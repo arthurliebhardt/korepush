@@ -117,6 +117,22 @@ YAML
   done
 fi
 
+# 3d. KoreApp CRD + operator. The CRD apply is idempotent; the operator manifest
+#     carries no secrets (it reads KOREPUSH_BASE_DOMAIN from the existing
+#     korepush-app secret), so re-applying is safe. Keep the currently-deployed
+#     operator image unless KOREPUSH_OPERATOR_IMAGE overrides it; default for
+#     installs that predate the operator.
+log "Installing/refreshing the KoreApp CRD + operator…"
+fetch "./deploy/crds/koreapp.yaml" "$RAW/deploy/crds/koreapp.yaml" "$WORK/koreapp-crd.yaml"
+$KUBECTL apply -f "$WORK/koreapp-crd.yaml" || err "KoreApp CRD not applied."
+$KUBECTL wait --for=condition=Established crd/koreapps.korepush.io --timeout=60s >/dev/null 2>&1 || true
+OP_IMAGE="${KOREPUSH_OPERATOR_IMAGE:-$($KUBECTL -n "$NS" get deploy korepush-operator \
+  -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo ghcr.io/arthurliebhardt/korepush-operator:latest)}"
+fetch "./deploy/operator.yaml" "$RAW/deploy/operator.yaml" "$WORK/operator.yaml"
+sed -i -e "s|__KOREPUSH_OPERATOR_IMAGE__|${OP_IMAGE}|g" "$WORK/operator.yaml"
+$KUBECTL apply -f "$WORK/operator.yaml" || err "Operator not applied; KoreApp CRs won't reconcile."
+$KUBECTL -n "$NS" rollout restart deploy/korepush-operator >/dev/null 2>&1 || true
+
 # 4. Pull the latest control plane (migrations + the HTTPRoute startup hook).
 if [ -n "${KOREPUSH_IMAGE:-}" ]; then
   $KUBECTL -n "$NS" set image deploy/korepush "korepush=${KOREPUSH_IMAGE}"

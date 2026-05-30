@@ -7,6 +7,7 @@
 # Environment overrides:
 #   KOREPUSH_DOMAIN   Hostname the UI is served on (default: server public IP)
 #   KOREPUSH_IMAGE    Control-plane image (default: ghcr.io/arthurliebhardt/korepush:latest)
+#   KOREPUSH_OPERATOR_IMAGE  Operator image (default: ghcr.io/arthurliebhardt/korepush-operator:latest)
 #   KOREPUSH_MANIFEST Path or URL to deploy manifest (default: bundled/remote)
 #   KOREPUSH_MONITORING_MANIFEST  Path or URL to monitoring manifest (default: bundled/remote)
 #   KOREPUSH_ACME_EMAIL  Contact email for Let's Encrypt (HTTPS on custom domains)
@@ -15,7 +16,10 @@
 set -euo pipefail
 
 KOREPUSH_IMAGE="${KOREPUSH_IMAGE:-ghcr.io/arthurliebhardt/korepush:latest}"
+KOREPUSH_OPERATOR_IMAGE="${KOREPUSH_OPERATOR_IMAGE:-ghcr.io/arthurliebhardt/korepush-operator:latest}"
 MANIFEST_URL="${KOREPUSH_MANIFEST:-https://raw.githubusercontent.com/arthurliebhardt/korepush/main/deploy/korepush.yaml}"
+OPERATOR_MANIFEST_URL="${KOREPUSH_OPERATOR_MANIFEST:-https://raw.githubusercontent.com/arthurliebhardt/korepush/main/deploy/operator.yaml}"
+CRD_MANIFEST_URL="${KOREPUSH_CRD_MANIFEST:-https://raw.githubusercontent.com/arthurliebhardt/korepush/main/deploy/crds/koreapp.yaml}"
 KUBECTL="/usr/local/bin/kubectl"
 
 log()  { printf '\033[1;36m[korepush]\033[0m %s\n' "$1"; }
@@ -197,6 +201,17 @@ else curl -sfL "${KOREPUSH_GATEWAY_MANIFEST:-https://raw.githubusercontent.com/a
 fi
 "$KUBECTL" apply -f "$GATEWAY" || err "Shared Gateway not applied; routing will fall back to Ingress."
 
+# 2c. Install the KoreApp CRD (must exist before the operator or any CR). The
+# operator watches these and reconciles them into Deployment/Service/HTTPRoute.
+log "Installing KoreApp CRD…"
+CRD="$WORK/koreapp.yaml"
+if [ -f "./deploy/crds/koreapp.yaml" ]; then cp ./deploy/crds/koreapp.yaml "$CRD"
+else curl -sfL "$CRD_MANIFEST_URL" -o "$CRD" || die "Failed to download CRD manifest."
+fi
+"$KUBECTL" apply -f "$CRD" || die "Failed to install KoreApp CRD."
+"$KUBECTL" wait --for=condition=Established crd/koreapps.korepush.io --timeout=60s ||
+  err "KoreApp CRD not Established yet; the operator will retry."
+
 # 3. Fetch the deploy manifest (prefer a local copy when run from a checkout).
 MANIFEST="$WORK/korepush.yaml"
 if [ -f "./deploy/korepush.yaml" ]; then
@@ -254,6 +269,16 @@ sed -i \
 log "Deploying korepush…"
 "$KUBECTL" apply -f "$MANIFEST"
 
+# 5b. Deploy the operator (after the control plane so the korepush-app secret it
+# reads KOREPUSH_BASE_DOMAIN from already exists).
+log "Deploying korepush operator…"
+OPERATOR="$WORK/operator.yaml"
+if [ -f "./deploy/operator.yaml" ]; then cp ./deploy/operator.yaml "$OPERATOR"
+else curl -sfL "$OPERATOR_MANIFEST_URL" -o "$OPERATOR" || die "Failed to download operator manifest."
+fi
+sed -i -e "s|__KOREPUSH_OPERATOR_IMAGE__|${KOREPUSH_OPERATOR_IMAGE}|g" "$OPERATOR"
+"$KUBECTL" apply -f "$OPERATOR" || err "Operator not applied; KoreApp CRs won't reconcile."
+
 # In domain mode, route the domain to the control plane and (unless cert-manager
 # was skipped) provision its cert on the shared Gateway's https listener, so
 # https://<domain> works once DNS points here. The host-less catch-all HTTPRoute
@@ -290,6 +315,8 @@ fi
 # control-plane image concurrently on first boot, so first rollout can be slow.
 "$KUBECTL" -n korepush-system rollout status deploy/postgres --timeout=420s
 "$KUBECTL" -n korepush-system rollout status deploy/korepush --timeout=420s
+"$KUBECTL" -n korepush-system rollout status deploy/korepush-operator --timeout=300s ||
+  err "Operator not ready yet; KoreApp CRs will reconcile once it starts."
 
 log "Done!"
 echo
