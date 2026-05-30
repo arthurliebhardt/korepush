@@ -146,9 +146,19 @@ export async function reconcile(namespace: string, name: string): Promise<void> 
     }
     const cur = existing.spec?.template?.spec?.containers?.[0];
     const curRestart = existing.spec?.template?.metadata?.annotations?.["korepush.io/restartedAt"];
+    // Adoption: an existing Deployment created by the old control plane has no
+    // ownerReference — stamp one so it GCs with the CR. This is a metadata-only
+    // replace (pod template unchanged) so it does NOT roll pods.
+    const needsOwner = !existing.metadata?.ownerReferences?.some((o) => o.uid === owner.uid);
+    // restartedAt is a one-way CR->pod signal: only force a roll when the CR
+    // carries a NEW stamp. An unset CR stamp must NOT "drift" against a legacy
+    // Deployment that still has an old annotation (that would churn forever).
+    const restartChanged = !!restartedAt && restartedAt !== curRestart;
     const drifted =
-      JSON.stringify([cur?.image, cur?.env, cur?.envFrom, existing.spec?.replicas, curRestart]) !==
-      JSON.stringify([container.image, container.env, container.envFrom, replicas, restartedAt]);
+      needsOwner ||
+      restartChanged ||
+      JSON.stringify([cur?.image, cur?.env, cur?.envFrom, existing.spec?.replicas]) !==
+        JSON.stringify([container.image, container.env, container.envFrom, replicas]);
     if (!drifted) break;
     existing.metadata = { ...existing.metadata, labels, ownerReferences: [owner] };
     existing.spec!.replicas = replicas;
@@ -167,8 +177,10 @@ export async function reconcile(namespace: string, name: string): Promise<void> 
     }
   }
 
-  // Service (create-if-missing).
-  if (!(await core.readNamespacedService({ name, namespace }).catch(() => null))) {
+  // Service: create-if-missing, and adopt a pre-existing one by stamping the
+  // ownerRef (metadata-only patch — no disruption) so it GCs with the CR.
+  const svc = await core.readNamespacedService({ name, namespace }).catch(() => null);
+  if (!svc) {
     await core.createNamespacedService({
       namespace,
       body: {
@@ -176,6 +188,11 @@ export async function reconcile(namespace: string, name: string): Promise<void> 
         spec: { selector: { app: name }, ports: [{ port: 80, targetPort: spec.port }] },
       },
     });
+  } else if (!svc.metadata?.ownerReferences?.some((o) => o.uid === owner.uid)) {
+    await core.patchNamespacedService(
+      { name, namespace, body: { metadata: { ownerReferences: [owner] } } },
+      mergePatch,
+    );
   }
 
   // Auto-host route (+ TLS on a real base domain) and custom-domain routes.

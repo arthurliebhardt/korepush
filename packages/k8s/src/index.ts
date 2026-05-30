@@ -47,8 +47,7 @@ export {
   listAppDomains,
   refreshAppDomainStatus,
   getNodeIp,
-  ensureAllAppRoutes,
-  startReconciler,
+  backfillKoreApps,
 } from "./apps";
 export type { CreateAppInput, CreateGitAppInput } from "./apps";
 export {

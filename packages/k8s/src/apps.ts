@@ -1,4 +1,3 @@
-import type { V1EnvVar } from "@kubernetes/client-node";
 import { and, desc, eq } from "drizzle-orm";
 import { db, schema } from "@korepush/db";
 import { k8sClients, managedLabels } from "./client";
@@ -16,19 +15,20 @@ import {
   BASE_DOMAIN,
   CM_GROUP,
   CM_VERSION,
-  GW_GROUP,
-  GW_VERSION,
   GW_NS,
-  reconcileHTTPRoute,
-  deleteHTTPRoute,
-  hostTlsSecret,
   domainSecretName,
-  ensureHttpsCert,
   removeHttpsCert,
   getNodeIp,
   dnsPointsHere,
-  isRealDomain,
 } from "./routing";
+// Runtime reconcile now lives in the operator; the control plane authors CRs.
+import {
+  buildKoreAppSpec,
+  envSpec,
+  createKoreApp,
+  patchKoreApp,
+  deleteKoreApp,
+} from "./koreapp";
 
 export { getNodeIp } from "./routing";
 
@@ -84,7 +84,8 @@ export async function createApp(input: CreateAppInput) {
     .returning();
 
   try {
-    await reconcileApp(space.namespace, space.slug, app);
+    // Create the KoreApp CR; the operator reconciles it into the workload.
+    await createKoreApp(space.namespace, slug, buildKoreAppSpec(app));
     await db
       .update(schema.apps)
       .set({ status: "running", updatedAt: new Date() })
@@ -108,187 +109,7 @@ export async function createApp(input: CreateAppInput) {
   return app;
 }
 
-type AppRow = typeof schema.apps.$inferSelect;
-
-async function reconcileApp(
-  namespace: string,
-  spaceSlug: string,
-  app: AppRow,
-) {
-  const { apps, core } = k8sClients();
-  const labels = managedLabels({
-    "korepush.io/space": spaceSlug,
-    "korepush.io/app": app.slug,
-    app: app.slug,
-  });
-  const env: V1EnvVar[] = Object.entries(app.env ?? {}).map(
-    ([name, value]) => ({ name, value }),
-  );
-  // Buildpack/Railpack (and most frameworks) bind to $PORT; inject it so a
-  // deployed app listens on its declared container port without extra config.
-  if (!env.some((e) => e.name === "PORT")) {
-    env.push({ name: "PORT", value: String(app.port) });
-  }
-  // Attached database: inject its connection string from the CNPG secret.
-  if (app.attachedDbId) {
-    const [database] = await db
-      .select()
-      .from(schema.databases)
-      .where(eq(schema.databases.id, app.attachedDbId))
-      .limit(1);
-    if (database?.connectionSecret) {
-      env.push({
-        name: app.dbEnvVar || "DATABASE_URL",
-        valueFrom: {
-          secretKeyRef: { name: database.connectionSecret, key: "uri" },
-        },
-      });
-    }
-  }
-
-  const container = {
-    name: app.slug,
-    image: app.image!,
-    ports: [{ containerPort: app.port }],
-    env,
-    // Secret env vars: inject the whole per-app Secret via envFrom so values
-    // never appear inline in the Deployment spec. Explicit `env` entries (PORT,
-    // the attached-db secretKeyRef) take precedence over envFrom keys.
-    ...(app.secretKeys?.length
-      ? { envFrom: [{ secretRef: { name: `${app.slug}-env` } }] }
-      : {}),
-    // Required: the space ResourceQuota rejects pods without requests + limits.
-    resources: {
-      requests: { cpu: "50m", memory: "64Mi" },
-      limits: { cpu: "500m", memory: "256Mi" },
-    },
-  };
-  // Create the Deployment, or update its image/replicas/env on redeploy.
-  const existing = await apps
-    .readNamespacedDeployment({ name: app.slug, namespace })
-    .catch(() => null);
-  if (!existing) {
-    await apps.createNamespacedDeployment({
-      namespace,
-      body: {
-        metadata: { name: app.slug, namespace, labels },
-        spec: {
-          replicas: app.replicas,
-          selector: { matchLabels: { app: app.slug } },
-          template: { metadata: { labels }, spec: { containers: [container] } },
-        },
-      },
-    });
-  } else {
-    existing.spec!.replicas = app.replicas;
-    existing.spec!.template.spec!.containers = [container];
-    // Bump a restart annotation so the pods roll and re-read env — a Secret
-    // data change alone does not trigger a rollout.
-    const tmpl = existing.spec!.template;
-    tmpl.metadata = tmpl.metadata ?? {};
-    tmpl.metadata.annotations = {
-      ...tmpl.metadata.annotations,
-      "korepush.io/restartedAt": new Date().toISOString(),
-    };
-    await apps.replaceNamespacedDeployment({
-      name: app.slug,
-      namespace,
-      body: existing,
-    });
-  }
-
-  await apply(
-    core.readNamespacedService({ name: app.slug, namespace }),
-    () =>
-      core.createNamespacedService({
-        namespace,
-        body: {
-          metadata: { name: app.slug, namespace, labels },
-          spec: {
-            selector: { app: app.slug },
-            ports: [{ port: 80, targetPort: app.port }],
-          },
-        },
-      }),
-  );
-
-  // Auto-host HTTPRoute + custom-domain routes/certs on the shared Gateway.
-  await ensureAppRoutes(namespace, spaceSlug, app);
-}
-
-/**
- * Ensure an app's routing on the shared Gateway: the auto-host HTTPRoute (+ a
- * per-host cert on a real base domain) and the custom-domain HTTPRoutes. Does
- * NOT touch the Deployment/Service (no pod churn). Idempotent.
- */
-export async function ensureAppRoutes(
-  namespace: string,
-  spaceSlug: string,
-  app: AppRow,
-) {
-  const labels = managedLabels({
-    "korepush.io/space": spaceSlug,
-    "korepush.io/app": app.slug,
-    app: app.slug,
-  });
-  const host = `${app.slug}.${spaceSlug}.${BASE_DOMAIN}`;
-  const tlsEnabled = isRealDomain(BASE_DOMAIN);
-  if (tlsEnabled) await ensureHttpsCert(host, hostTlsSecret(host), false);
-  await reconcileHTTPRoute(
-    namespace,
-    app.slug,
-    [host],
-    tlsEnabled ? ["web", "https"] : ["web"],
-    [{ name: app.slug, weight: 100 }],
-    labels,
-  );
-  // Custom domains best-effort — a domains hiccup must not fail a deploy.
-  await reconcileAppDomains(namespace, spaceSlug, app).catch(() => {});
-}
-
-/* ──────────────────────────────────────────────────────────
- * Custom domains: per-app extra hostnames, each with its own Let's Encrypt
- * cert. A separate `<slug>-domains` Ingress + directly-managed cert-manager
- * Certificate CRs (so the staging/prod issuer can be chosen per domain — a
- * single Ingress annotation can't). The auto host stays on its own Ingress.
- * ────────────────────────────────────────────────────────── */
-
 type AppDomainRow = typeof schema.appDomains.$inferSelect;
-
-async function reconcileAppDomains(
-  namespace: string,
-  spaceSlug: string,
-  app: AppRow,
-) {
-  const routeName = `${app.slug}-domains`;
-  const domains = await db
-    .select()
-    .from(schema.appDomains)
-    .where(eq(schema.appDomains.appId, app.id));
-
-  if (domains.length === 0) {
-    await deleteHTTPRoute(namespace, routeName);
-    return;
-  }
-
-  // Only domains past the DNS precheck (status != pending) request a cert + TLS.
-  const active = domains.filter((d) => d.status !== "pending");
-  for (const d of active) {
-    await ensureHttpsCert(d.host, d.secretName, d.useStaging).catch(() => {});
-  }
-
-  // One HTTPRoute for all the app's custom hostnames → its Service. Active
-  // domains also attach to the https listener (their cert is SNI-selected).
-  const labels = managedLabels({ "korepush.io/app": app.slug });
-  await reconcileHTTPRoute(
-    namespace,
-    routeName,
-    domains.map((d) => d.host),
-    active.length ? ["web", "https"] : ["web"],
-    [{ name: app.slug, weight: 100 }],
-    labels,
-  );
-}
 
 const DOMAIN_RE = /^(?!-)[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 
@@ -327,7 +148,8 @@ export async function addAppDomain(
     }
     throw err;
   }
-  if (app.image) await reconcileAppDomains(space.namespace, space.slug, app);
+  // The domain stays out of the CR spec until it passes the DNS precheck (see
+  // refreshAppDomainStatus) — only then does the operator provision its cert.
   return { host };
 }
 
@@ -353,8 +175,13 @@ export async function removeAppDomain(
   if (!d) return;
 
   await db.delete(schema.appDomains).where(eq(schema.appDomains.id, d.id));
+  // Tear down the removed host's cert/Gateway ref (the operator only adds
+  // certs for hosts still in spec.domains; it can't know one was removed).
   await removeHttpsCert(d.secretName);
-  await reconcileAppDomains(space.namespace, space.slug, app);
+  const remaining = (await listAppDomains(app.id))
+    .filter((r) => r.status !== "pending")
+    .map((r) => ({ host: r.host, staging: r.useStaging }));
+  await patchKoreApp(space.namespace, app.slug, { spec: { domains: remaining } });
 }
 
 export async function listAppDomains(appId: string) {
@@ -430,21 +257,16 @@ export async function refreshAppDomainStatus(
     }
   }
 
-  if (advanced && app.image) {
-    await reconcileAppDomains(space.namespace, space.slug, app);
+  const fresh = await listAppDomains(app.id);
+  if (advanced) {
+    // A domain just passed the precheck — sync the non-pending set onto the CR
+    // so the operator provisions its cert + route.
+    const domains = fresh
+      .filter((d) => d.status !== "pending")
+      .map((d) => ({ host: d.host, staging: d.useStaging }));
+    await patchKoreApp(space.namespace, app.slug, { spec: { domains } });
   }
-  return listAppDomains(app.id);
-}
-
-/** Create the resource only if the read 404s; ignore "already exists". */
-async function apply(readPromise: Promise<unknown>, create: () => Promise<unknown>) {
-  try {
-    await readPromise;
-    return; // already exists
-  } catch {
-    // fall through to create
-  }
-  await create();
+  return fresh;
 }
 
 /* ──────────────────────────────────────────────────────────
@@ -486,6 +308,9 @@ export async function createGitApp(input: CreateGitAppInput) {
       status: "pending",
     })
     .returning();
+  // Create the CR now (no image yet → operator reports Pending); the build
+  // pipeline PATCHes spec.image when it succeeds (finalizeBuild).
+  await createKoreApp(space.namespace, slug, buildKoreAppSpec(app));
   return app;
 }
 
@@ -577,7 +402,7 @@ export async function finalizeBuild(deploymentId: string): Promise<string> {
       .update(schema.apps)
       .set({ image: dep.image, status: "running", updatedAt: new Date() })
       .where(eq(schema.apps.id, app.id));
-    await reconcileApp(space.namespace, space.slug, { ...app, image: dep.image });
+    await patchKoreApp(space.namespace, app.slug, { spec: { image: dep.image } });
     await db
       .update(schema.deployments)
       .set({ status: "succeeded", finishedAt: new Date() })
@@ -649,10 +474,7 @@ export async function rollbackDeployment(
       .update(schema.apps)
       .set({ image: target.image, status: "running", updatedAt: new Date() })
       .where(eq(schema.apps.id, app.id));
-    await reconcileApp(space.namespace, space.slug, {
-      ...app,
-      image: target.image,
-    });
+    await patchKoreApp(space.namespace, app.slug, { spec: { image: target.image } });
     await db
       .update(schema.deployments)
       .set({ status: "succeeded", finishedAt: new Date() })
@@ -801,13 +623,15 @@ export async function setAppEnv(
     .set({ env: opts.plain, secretKeys, updatedAt: new Date() })
     .where(eq(schema.apps.id, app.id));
 
-  if (app.image) {
-    await reconcileApp(space.namespace, space.slug, {
-      ...app,
-      env: opts.plain,
-      secretKeys,
-    });
-  }
+  // Patch the CR's env/envFrom and bump the restart stamp so the operator rolls
+  // pods even when only the referenced Secret's VALUES changed.
+  await patchKoreApp(space.namespace, app.slug, {
+    spec: {
+      env: envSpec(opts.plain),
+      envFrom: secretKeys.length ? [{ secretRef: { name: `${app.slug}-env` } }] : [],
+    },
+    restart: true,
+  });
 }
 
 /** Attach a database: inject its connection string into the app + redeploy. */
@@ -837,13 +661,10 @@ export async function attachDatabase(
     .update(schema.apps)
     .set({ attachedDbId: databaseId, dbEnvVar: envVar, updatedAt: new Date() })
     .where(eq(schema.apps.id, app.id));
-  if (app.image) {
-    await reconcileApp(space.namespace, space.slug, {
-      ...app,
-      attachedDbId: databaseId,
-      dbEnvVar: envVar,
-    });
-  }
+  // The operator resolves spec.database.name -> Secret db-<name>-app key 'uri'.
+  await patchKoreApp(space.namespace, app.slug, {
+    spec: { database: { name: database.slug, envVar } },
+  });
 }
 
 export async function detachDatabase(spaceSlug: string, appSlug: string) {
@@ -855,111 +676,59 @@ export async function detachDatabase(spaceSlug: string, appSlug: string) {
     .update(schema.apps)
     .set({ attachedDbId: null, updatedAt: new Date() })
     .where(eq(schema.apps.id, app.id));
-  if (app.image) {
-    await reconcileApp(space.namespace, space.slug, {
-      ...app,
-      attachedDbId: null,
-    });
-  }
+  await patchKoreApp(space.namespace, app.slug, { spec: { database: null } });
 }
 
 /**
- * Ensure every app's HTTPRoute(s) + cert exist on the shared Gateway — WITHOUT
- * touching Deployments/Services (no pod churn). Run once on control-plane
- * startup so a rollout/upgrade brings all apps onto the Gateway. Idempotent.
+ * Adopt existing apps into the operator: create a KoreApp CR per app from its
+ * current DB state (idempotent — skips apps that already have a CR). Run once
+ * on control-plane boot so an upgrade hands every running app to the operator
+ * WITHOUT churn (the operator only stamps ownerReferences — a metadata-only
+ * change that does not roll pods). Replaces the old in-server reconciler.
  */
-export async function ensureAllAppRoutes() {
+export async function backfillKoreApps() {
   for (const space of await listSpaces()) {
     for (const app of await listApps(space.id)) {
-      if (!app.image) continue;
-      await ensureAppRoutes(space.namespace, space.slug, app).catch(() => {});
-    }
-  }
-}
-
-/* ──────────────────────────────────────────────────────────
- * Continuous drift reconciler. The DB is the source of truth; this periodically
- * re-asserts each app's k8s objects, healing drift (a deleted Deployment or
- * HTTPRoute) WITHOUT churning healthy workloads — it only acts on what's
- * missing. Single control-plane replica → no leader election; if you ever scale
- * the control plane > 1, gate this behind a k8s Lease so only one runs.
- * ────────────────────────────────────────────────────────── */
-let reconcilerTimer: ReturnType<typeof setInterval> | null = null;
-let reconcilerBusy = false;
-
-/** Start the periodic drift reconciler (call once, on control-plane boot). */
-export function startReconciler(intervalMs = 90_000) {
-  if (reconcilerTimer || process.env.KOREPUSH_DISABLE_RECONCILER) return;
-  const tick = async () => {
-    if (reconcilerBusy) return; // never overlap a slow pass
-    reconcilerBusy = true;
-    try {
-      await reconcileDrift();
-    } catch (err) {
-      console.error("[reconciler]", err);
-    } finally {
-      reconcilerBusy = false;
-    }
-  };
-  reconcilerTimer = setInterval(tick, intervalMs);
-  setTimeout(tick, 15_000); // first pass shortly after boot
-}
-
-async function reconcileDrift() {
-  const { apps, custom } = k8sClients();
-  for (const space of await listSpaces()) {
-    for (const app of await listApps(space.id)) {
-      if (!app.image) continue;
-      const [dep, route] = await Promise.all([
-        apps
-          .readNamespacedDeployment({ name: app.slug, namespace: space.namespace })
-          .catch(() => null),
-        custom
-          .getNamespacedCustomObject({
-            group: GW_GROUP,
-            version: GW_VERSION,
-            namespace: space.namespace,
-            plural: "httproutes",
-            name: app.slug,
-          })
-          .catch(() => null),
-      ]);
-      if (!dep) {
-        // Workload vanished → full reconcile recreates Deployment+Service+routes.
-        await reconcileApp(space.namespace, space.slug, app).catch(() => {});
-      } else if (!route) {
-        // Only routing drifted → re-assert routes/certs (no pod impact).
-        await ensureAppRoutes(space.namespace, space.slug, app).catch(() => {});
+      try {
+        let dbSlug: string | null = null;
+        if (app.attachedDbId) {
+          const [d] = await db
+            .select()
+            .from(schema.databases)
+            .where(eq(schema.databases.id, app.attachedDbId))
+            .limit(1);
+          dbSlug = d?.slug ?? null;
+        }
+        const domains = (await listAppDomains(app.id))
+          .filter((d) => d.status !== "pending")
+          .map((d) => ({ host: d.host, staging: d.useStaging }));
+        await createKoreApp(
+          space.namespace,
+          app.slug,
+          buildKoreAppSpec(app, { dbSlug, domains }),
+        );
+      } catch (err) {
+        console.error("[backfill]", space.slug, app.slug, err);
       }
     }
   }
 }
 
+/**
+ * Delete an app: remove its KoreApp CR — the operator's finalizer cleans the
+ * cross-namespace certs + the env Secret, and ownerReferences GC the
+ * Deployment/Service/HTTPRoutes. Then drop the DB row. The env Secret is also
+ * deleted here best-effort, to cover an app that predates CR adoption.
+ */
 export async function deleteApp(spaceSlug: string, slug: string) {
   const space = await getSpaceBySlug(spaceSlug);
   if (!space) return;
   const app = await getApp(space.id, slug);
   if (!app) return;
 
-  const domains = await db
-    .select()
-    .from(schema.appDomains)
-    .where(eq(schema.appDomains.appId, app.id));
-
-  const { apps, core } = k8sClients();
-  const autoHost = `${slug}.${space.slug}.${BASE_DOMAIN}`;
-  await Promise.allSettled([
-    apps.deleteNamespacedDeployment({ name: slug, namespace: space.namespace }),
-    core.deleteNamespacedService({ name: slug, namespace: space.namespace }),
-    deleteHTTPRoute(space.namespace, slug),
-    deleteHTTPRoute(space.namespace, `${slug}-domains`),
-    core.deleteNamespacedSecret({
-      name: `${slug}-env`,
-      namespace: space.namespace,
-    }),
-    // Per-host certs live in kube-system on the shared Gateway's https listener.
-    removeHttpsCert(hostTlsSecret(autoHost)),
-    ...domains.map((d) => removeHttpsCert(d.secretName)),
-  ]);
+  await deleteKoreApp(space.namespace, slug);
+  await k8sClients()
+    .core.deleteNamespacedSecret({ name: `${slug}-env`, namespace: space.namespace })
+    .catch(() => {});
   await db.delete(schema.apps).where(eq(schema.apps.id, app.id));
 }

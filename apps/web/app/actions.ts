@@ -126,8 +126,8 @@ export async function createGitAppAction(input: {
       buildCmd: input.buildCmd,
       startCmd: input.startCmd,
     });
-    // Persist env (incl. secrets) before the build; reconcileApp injects them
-    // when the build finalizes.
+    // Persist env (incl. secrets) before the build; the operator injects them
+    // once the build patches spec.image onto the CR.
     if (split) await setAppEnv(input.spaceSlug, app.slug, split);
     const token = await mintCloneTokenForRepo(input.repoUrl).catch(() => null);
     const { deploymentId } = await triggerGitBuild(

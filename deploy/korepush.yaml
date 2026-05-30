@@ -38,8 +38,11 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments", "replicasets", "statefulsets"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["networking.k8s.io"]
-    resources: ["ingresses"]
+  # KoreApp CRs: the UI authors these (create on app create, patch on
+  # deploy/env/db/domain/rollback, delete on app delete); the operator owns
+  # status + the reconcile. Status is operator-owned, so no koreapps/status here.
+  - apiGroups: ["korepush.io"]
+    resources: ["koreapps"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["batch"]
     resources: ["jobs"]
