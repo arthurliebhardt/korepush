@@ -102,14 +102,44 @@ YAML
   fi
   fetch "./deploy/gateway.yaml" "$RAW/deploy/gateway.yaml" "$WORK/gateway.yaml"
   $KUBECTL apply -f "$WORK/gateway.yaml" || err "Shared Gateway not applied."
+
+  # 3c. Static HTTPRoutes (control-plane catch-all + Grafana) + switch the ACME
+  #     HTTP-01 solver to the Gateway. Per-app HTTPRoutes are created by the
+  #     rolled control plane's startup hook (step 4).
+  fetch "./deploy/korepush.yaml" "$RAW/deploy/korepush.yaml" "$WORK/cp.yaml"
+  fetch "./deploy/monitoring.yaml" "$RAW/deploy/monitoring.yaml" "$WORK/mon.yaml"
+  awk 'BEGIN{RS="\n---\n"} /kind: HTTPRoute/{print $0"\n---"}' "$WORK/cp.yaml" "$WORK/mon.yaml" |
+    $KUBECTL apply -f - || err "Gateway HTTPRoutes not applied."
+  for ISS in letsencrypt-prod letsencrypt-staging; do
+    $KUBECTL get clusterissuer "$ISS" >/dev/null 2>&1 &&
+      $KUBECTL patch clusterissuer "$ISS" --type=merge \
+        -p '{"spec":{"acme":{"solvers":[{"http01":{"gatewayHTTPRoute":{"parentRefs":[{"name":"korepush","namespace":"kube-system","kind":"Gateway","sectionName":"web"}]}}}]}}}' >/dev/null 2>&1 || true
+  done
 fi
 
-# 4. Pull the latest control plane (migrations run on startup via entrypoint).
+# 4. Pull the latest control plane (migrations + the HTTPRoute startup hook).
 if [ -n "${KOREPUSH_IMAGE:-}" ]; then
   $KUBECTL -n "$NS" set image deploy/korepush "korepush=${KOREPUSH_IMAGE}"
 fi
 log "Updating the control plane (this also runs any new database migrations)…"
 $KUBECTL -n "$NS" rollout restart deploy/korepush
 $KUBECTL -n "$NS" rollout status deploy/korepush --timeout=300s
+
+# 5. Big-bang Gateway cutover: once the control plane is up (its startup hook
+#    has created the per-app HTTPRoutes), snapshot then remove the Ingresses so
+#    the Gateway becomes authoritative. Rollback: re-apply the backup.
+if [ -z "${KOREPUSH_SKIP_GATEWAY:-}" ] &&
+   $KUBECTL get gatewayclass traefik >/dev/null 2>&1 &&
+   [ -n "$($KUBECTL get ingress -A -o name 2>/dev/null)" ]; then
+  log "Cutting over to the Gateway (removing Ingresses)…"
+  $KUBECTL get ingress -A -o yaml > /tmp/korepush-ingress-backup.yaml 2>/dev/null || true
+  log "  Ingress backup: /tmp/korepush-ingress-backup.yaml (rollback: kubectl apply -f it)"
+  sleep 6 # let the startup hook finish creating per-app HTTPRoutes
+  $KUBECTL -n "$NS" delete ingress korepush --ignore-not-found >/dev/null 2>&1 || true
+  $KUBECTL -n korepush-monitoring delete ingress grafana --ignore-not-found >/dev/null 2>&1 || true
+  for SNS in $($KUBECTL get ns -o name 2>/dev/null | grep -oE 'ks-[a-z0-9-]+'); do
+    $KUBECTL -n "$SNS" delete ingress --all >/dev/null 2>&1 || true
+  done
+fi
 
 log "Done — korepush is up to date."
