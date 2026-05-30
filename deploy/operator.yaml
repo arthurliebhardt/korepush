@@ -24,10 +24,15 @@ rules:
   - apiGroups: [""]
     resources: ["services"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # Read-only: env secrets are referenced (never created) here; pod/deployment
-  # status feeds the CR's readyReplicas.
+  # Secrets are referenced (never created) by the operator — but the deletion
+  # finalizer deletes the per-app `<slug>-env` Secret and the per-host TLS
+  # Secrets in kube-system, so it needs delete too.
   - apiGroups: [""]
-    resources: ["secrets", "pods"]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "delete"]
+  # Pod/deployment status feeds the CR's readyReplicas (read-only).
+  - apiGroups: [""]
+    resources: ["pods"]
     verbs: ["get", "list", "watch"]
   # Routing: per-app HTTPRoutes on the shared Gateway (+ read the Gateway to
   # patch shared https-listener certs in M-OP2).

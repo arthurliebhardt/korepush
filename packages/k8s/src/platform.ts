@@ -1,5 +1,5 @@
 import { k8sClients } from "./client";
-import { reconcileHTTPRoute, ensureHttpsCert } from "./apps";
+import { reconcileHTTPRoute, ensureHttpsCert } from "./routing";
 
 // The control plane manages its own k8s objects (created by install.sh).
 const NS = "korepush-system";

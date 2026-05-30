@@ -53,6 +53,7 @@ export type KoreApp = {
     generation?: number;
     resourceVersion?: string;
     labels?: Record<string, string>;
+    annotations?: Record<string, string>;
     // Typed as Date to satisfy client-node's KubernetesObject; at runtime it's
     // an ISO string — we only ever truthy-check it.
     deletionTimestamp?: Date;
