@@ -246,3 +246,25 @@ export async function getKoreAppPhase(namespace: string, slug: string): Promise<
     .catch(() => null)) as { status?: { phase?: string } } | null;
   return cr?.status?.phase ?? null;
 }
+
+/** Live status.phase for every KoreApp in a namespace, keyed by name — one list
+ *  call for a whole space's app list (avoids an N+1 of per-app GETs). */
+export async function listKoreAppPhases(namespace: string): Promise<Record<string, string>> {
+  const res = (await k8sClients()
+    .custom.listNamespacedCustomObject({ group: GROUP, version: VERSION, namespace, plural: PLURAL })
+    .catch(() => null)) as {
+    items?: { metadata?: { name?: string }; status?: { phase?: string } }[];
+  } | null;
+  const out: Record<string, string> = {};
+  for (const it of res?.items ?? []) {
+    if (it.metadata?.name && it.status?.phase) out[it.metadata.name] = it.status.phase;
+  }
+  return out;
+}
+
+/** Map a KoreApp status.phase to the lowercase status the UI badge styles
+ *  (Pending/Progressing/Running/Stopped → pending/progressing/running/stopped);
+ *  null when there's no live phase yet so callers fall back to the DB mirror. */
+export function phaseToStatus(phase: string | null | undefined): string | null {
+  return phase ? phase.toLowerCase() : null;
+}

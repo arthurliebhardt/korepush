@@ -7,6 +7,8 @@ import {
   listDatabases,
   getDatabaseInfo,
   getSpaceMetrics,
+  listKoreAppPhases,
+  phaseToStatus,
 } from "@korepush/k8s";
 import { listAllConnectedRepos } from "@/lib/github/app";
 import { StatusBadge } from "@/components/status-badge";
@@ -26,7 +28,16 @@ export default async function SpacePage({
   const space = await getSpaceBySlug(slug);
   if (!space) notFound();
 
-  const apps = await listApps(space.id);
+  // Badge from the operator's live CR status.phase (the DB status is only a
+  // mutation-time mirror); fall back to it when a CR has no phase yet.
+  const appRows = await listApps(space.id);
+  const phases = await listKoreAppPhases(space.namespace).catch(
+    (): Record<string, string> => ({}),
+  );
+  const apps = appRows.map((a) => ({
+    ...a,
+    status: phaseToStatus(phases[a.slug]) ?? a.status,
+  }));
   const usage = await getSpaceMetrics(space.namespace).catch(() => null);
   // Connected GitHub repos for the deploy picker (VM can reach GitHub outbound).
   const repos = (await listAllConnectedRepos().catch(() => [])).map((r) => ({

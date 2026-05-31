@@ -6,6 +6,7 @@ const STYLES: Record<string, string> = {
   queued: "bg-warn/15 text-warn",
   building: "bg-warn/15 text-warn",
   deploying: "bg-warn/15 text-warn",
+  progressing: "bg-warn/15 text-warn",
   degraded: "bg-warn/15 text-warn",
   failed: "bg-danger/15 text-danger",
   stopped: "bg-zinc-500/15 text-muted",

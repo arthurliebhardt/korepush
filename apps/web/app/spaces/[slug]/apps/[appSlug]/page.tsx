@@ -11,6 +11,8 @@ import {
   getEffectiveEnv,
   listAppDomains,
   getNodeIp,
+  getKoreAppPhase,
+  phaseToStatus,
 } from "@korepush/k8s";
 import { AppLive } from "@/components/app-live";
 import { AppMetrics } from "@/components/app-metrics";
@@ -52,6 +54,11 @@ export default async function AppPage({
   // Show the build console only while a build is in flight; otherwise runtime.
   const building = isGit ? await latestBuildingDeployment(app.id) : null;
   const buildId = building?.id ?? null;
+  // Seed the live badge with the operator's CR phase so first paint matches the
+  // SSE stream (which then keeps it live); fall back to the DB mirror.
+  const initialStatus =
+    phaseToStatus(await getKoreAppPhase(space.namespace, app.slug).catch(() => null)) ??
+    app.status;
 
   const databases = (await listDatabases(space.id)).map((d) => ({
     id: d.id,
@@ -127,7 +134,7 @@ export default async function AppPage({
           <AppLive
             spaceSlug={space.slug}
             appSlug={app.slug}
-            initialStatus={app.status}
+            initialStatus={initialStatus}
           />
           <AppMetrics
             spaceSlug={space.slug}
