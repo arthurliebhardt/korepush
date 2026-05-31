@@ -6,7 +6,9 @@ export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   if (!process.env.KUBERNETES_SERVICE_HOST) return; // only in-cluster
   try {
-    const { backfillKoreApps, startBuildFinalizer } = await import("@korepush/k8s");
+    const { backfillKoreSpaces, backfillKoreApps, startBuildFinalizer } =
+      await import("@korepush/k8s");
+    await backfillKoreSpaces(); // adopt namespaces first, then the apps in them
     await backfillKoreApps();
     // Deploy completed builds independent of the UI (push-to-deploy lands even
     // when nobody is watching the page).

@@ -19,7 +19,7 @@ KOREPUSH_IMAGE="${KOREPUSH_IMAGE:-ghcr.io/arthurliebhardt/korepush:latest}"
 KOREPUSH_OPERATOR_IMAGE="${KOREPUSH_OPERATOR_IMAGE:-ghcr.io/arthurliebhardt/korepush-operator:latest}"
 MANIFEST_URL="${KOREPUSH_MANIFEST:-https://raw.githubusercontent.com/arthurliebhardt/korepush/main/deploy/korepush.yaml}"
 OPERATOR_MANIFEST_URL="${KOREPUSH_OPERATOR_MANIFEST:-https://raw.githubusercontent.com/arthurliebhardt/korepush/main/deploy/operator.yaml}"
-CRD_MANIFEST_URL="${KOREPUSH_CRD_MANIFEST:-https://raw.githubusercontent.com/arthurliebhardt/korepush/main/deploy/crds/koreapp.yaml}"
+KOREPUSH_CRD_BASE="${KOREPUSH_CRD_BASE:-https://raw.githubusercontent.com/arthurliebhardt/korepush/main/deploy/crds}"
 KUBECTL="/usr/local/bin/kubectl"
 
 log()  { printf '\033[1;36m[korepush]\033[0m %s\n' "$1"; }
@@ -201,16 +201,21 @@ else curl -sfL "${KOREPUSH_GATEWAY_MANIFEST:-https://raw.githubusercontent.com/a
 fi
 "$KUBECTL" apply -f "$GATEWAY" || err "Shared Gateway not applied; routing will fall back to Ingress."
 
-# 2c. Install the KoreApp CRD (must exist before the operator or any CR). The
-# operator watches these and reconciles them into Deployment/Service/HTTPRoute.
-log "Installing KoreApp CRD…"
-CRD="$WORK/koreapp.yaml"
-if [ -f "./deploy/crds/koreapp.yaml" ]; then cp ./deploy/crds/koreapp.yaml "$CRD"
-else curl -sfL "$CRD_MANIFEST_URL" -o "$CRD" || die "Failed to download CRD manifest."
+# 2c. Install the korepush CRDs (must exist before the operator or any CR). The
+# operator watches these and reconciles them into the live k8s objects.
+log "Installing korepush CRDs…"
+if [ -d "./deploy/crds" ]; then
+  "$KUBECTL" apply -f ./deploy/crds/ || die "Failed to install CRDs."
+else
+  for crd in koreapp korespace; do
+    curl -sfL "${KOREPUSH_CRD_BASE}/${crd}.yaml" -o "$WORK/${crd}.yaml" ||
+      die "Failed to download ${crd} CRD."
+    "$KUBECTL" apply -f "$WORK/${crd}.yaml" || die "Failed to install ${crd} CRD."
+  done
 fi
-"$KUBECTL" apply -f "$CRD" || die "Failed to install KoreApp CRD."
-"$KUBECTL" wait --for=condition=Established crd/koreapps.korepush.io --timeout=60s ||
-  err "KoreApp CRD not Established yet; the operator will retry."
+"$KUBECTL" wait --for=condition=Established \
+  crd/koreapps.korepush.io crd/korespaces.korepush.io --timeout=60s ||
+  err "CRDs not Established yet; the operator will retry."
 
 # 3. Fetch the deploy manifest (prefer a local copy when run from a checkout).
 MANIFEST="$WORK/korepush.yaml"

@@ -150,6 +150,50 @@ export async function deleteKoreApp(namespace: string, slug: string): Promise<vo
     });
 }
 
+/* ── KoreSpace (cluster-scoped: the operator materialises a Namespace + quota) ── */
+
+const KORESPACES = "korespaces";
+
+export type KoreSpaceSpec = {
+  displayName?: string;
+  quota?: {
+    requestsCpu?: string;
+    requestsMemory?: string;
+    limitsCpu?: string;
+    limitsMemory?: string;
+    pods?: string;
+  };
+};
+
+/** Create the KoreSpace CR if absent (idempotent — backfill/adoption safe). */
+export async function createKoreSpace(name: string, spec: KoreSpaceSpec): Promise<void> {
+  await k8sClients()
+    .custom.createClusterCustomObject({
+      group: GROUP,
+      version: VERSION,
+      plural: KORESPACES,
+      body: {
+        apiVersion: `${GROUP}/${VERSION}`,
+        kind: "KoreSpace",
+        metadata: { name, labels: managedLabels({ "korepush.io/space": name }) },
+        spec,
+      },
+    })
+    .catch((e: unknown) => {
+      if ((e as { code?: number })?.code === 409) return;
+      throw e;
+    });
+}
+
+export async function deleteKoreSpace(name: string): Promise<void> {
+  await k8sClients()
+    .custom.deleteClusterCustomObject({ group: GROUP, version: VERSION, plural: KORESPACES, name })
+    .catch((e: unknown) => {
+      if ((e as { code?: number })?.code === 404) return;
+      throw e;
+    });
+}
+
 /** The CR's status.phase (operator-authoritative), for the UI to read. */
 export async function getKoreAppPhase(namespace: string, slug: string): Promise<string | null> {
   const cr = (await k8sClients()

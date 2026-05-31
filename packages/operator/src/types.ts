@@ -66,3 +66,46 @@ export type KoreApp = {
 export const GROUP = "korepush.io";
 export const VERSION = "v1alpha1";
 export const PLURAL = "koreapps";
+export const KORESPACES = "korespaces";
+
+export type KoreSpaceSpec = {
+  displayName?: string;
+  quota?: {
+    requestsCpu?: string;
+    requestsMemory?: string;
+    limitsCpu?: string;
+    limitsMemory?: string;
+    pods?: string;
+  };
+};
+
+export type KoreSpaceStatus = {
+  phase?: string;
+  namespace?: string;
+  observedGeneration?: number;
+  conditions?: {
+    type: string;
+    status: "True" | "False" | "Unknown";
+    observedGeneration?: number;
+    lastTransitionTime: string;
+    reason: string;
+    message: string;
+  }[];
+};
+
+// Cluster-scoped (no metadata.namespace).
+export type KoreSpace = {
+  apiVersion: string;
+  kind: string;
+  metadata: {
+    name: string;
+    uid?: string;
+    generation?: number;
+    resourceVersion?: string;
+    labels?: Record<string, string>;
+    deletionTimestamp?: Date;
+    finalizers?: string[];
+  };
+  spec: KoreSpaceSpec;
+  status?: KoreSpaceStatus;
+};

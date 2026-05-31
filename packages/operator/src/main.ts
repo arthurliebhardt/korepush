@@ -4,36 +4,50 @@ import {
   makeInformer,
   type ListPromise,
   type KubernetesListObject,
+  type KubernetesObject,
 } from "@kubernetes/client-node";
-import { GROUP, VERSION, PLURAL, type KoreApp } from "./types";
+import { GROUP, VERSION, PLURAL, KORESPACES } from "./types";
 import { reconcile } from "./reconcile";
+import { reconcileSpace } from "./reconcile-space";
 
 const kc = new KubeConfig();
 if (process.env.KUBERNETES_SERVICE_HOST) kc.loadFromCluster();
 else kc.loadFromDefault();
 const custom = kc.makeApiClient(CustomObjectsApi);
 
-const path = `/apis/${GROUP}/${VERSION}/${PLURAL}`;
-const listFn = (() =>
-  custom.listClusterCustomObject({
-    group: GROUP,
-    version: VERSION,
-    plural: PLURAL,
-  })) as unknown as ListPromise<KoreApp>;
+// One reconciler per CR kind. All feed a single serialized work queue, which
+// also serializes the shared-Gateway 409 contention (KoreApp routing).
+type KindDef = {
+  plural: string;
+  reconcile: (namespace: string, name: string) => Promise<void>;
+  listFn: ListPromise<KubernetesObject>;
+};
+const KINDS: KindDef[] = [
+  { plural: PLURAL, reconcile },
+  { plural: KORESPACES, reconcile: reconcileSpace },
+].map((k) => ({
+  ...k,
+  // listClusterCustomObject enumerates across all namespaces for namespaced
+  // CRDs and the cluster set for cluster-scoped ones — works for both.
+  listFn: (() =>
+    custom.listClusterCustomObject({
+      group: GROUP,
+      version: VERSION,
+      plural: k.plural,
+    })) as unknown as ListPromise<KubernetesObject>,
+}));
 
-// Level-triggered work queue: events enqueue a namespace/name KEY; the worker
-// re-reads the live CR in reconcile(). Serialized (one at a time) — which also
-// serializes the shared-Gateway 409 contention. Retry with a fixed backoff.
+// Level-triggered work queue: events enqueue a "plural|ns|name" key; the worker
+// re-reads the live CR in its reconcile(). Serialized, fixed-backoff retry.
 const dirty = new Set<string>();
 let draining = false;
+const byPlural = new Map(KINDS.map((k) => [k.plural, k.reconcile]));
 
-function enqueue(obj: KoreApp) {
-  const ns = obj.metadata?.namespace;
+function enqueue(plural: string, obj: KubernetesObject) {
   const name = obj.metadata?.name;
-  if (ns && name) {
-    dirty.add(`${ns}/${name}`);
-    void drain();
-  }
+  if (!name) return;
+  dirty.add(`${plural}|${obj.metadata?.namespace ?? ""}|${name}`);
+  void drain();
 }
 
 async function drain() {
@@ -43,9 +57,11 @@ async function drain() {
     while (dirty.size) {
       const key = dirty.values().next().value as string;
       dirty.delete(key);
-      const [ns, name] = key.split("/");
+      const [plural, ns, name] = key.split("|");
+      const fn = byPlural.get(plural);
+      if (!fn) continue;
       try {
-        await reconcile(ns, name);
+        await fn(ns, name);
       } catch (e) {
         console.error("[reconcile]", key, e);
         setTimeout(() => {
@@ -59,36 +75,42 @@ async function drain() {
   }
 }
 
-const informer = makeInformer<KoreApp>(kc, path, listFn);
-informer.on("add", enqueue);
-informer.on("update", enqueue);
-informer.on("delete", enqueue);
-// CRITICAL: the informer does NOT auto-restart on a clean close — re-arm it.
-informer.on("error", (err: unknown) => {
-  console.error("[informer] error; restarting in 5s", err);
-  setTimeout(start, 5000);
-});
+function watch(k: KindDef) {
+  const path = `/apis/${GROUP}/${VERSION}/${k.plural}`;
+  const informer = makeInformer<KubernetesObject>(kc, path, k.listFn);
+  informer.on("add", (o) => enqueue(k.plural, o));
+  informer.on("update", (o) => enqueue(k.plural, o));
+  informer.on("delete", (o) => enqueue(k.plural, o));
+  // CRITICAL: the informer does NOT auto-restart on a clean close — re-arm it.
+  informer.on("error", (err: unknown) => {
+    console.error(`[informer:${k.plural}] error; restarting in 5s`, err);
+    setTimeout(() => start(informer, k.plural), 5000);
+  });
+  return informer;
+}
 
-async function start() {
+async function start(informer: ReturnType<typeof makeInformer>, plural: string) {
   try {
     await informer.start();
   } catch (e) {
-    console.error("[informer] start failed; retrying in 5s", e);
-    setTimeout(start, 5000);
+    console.error(`[informer:${plural}] start failed; retrying in 5s`, e);
+    setTimeout(() => start(informer, plural), 5000);
   }
 }
 
-console.log("[korepush-operator] watching koreapps across all namespaces");
-void start();
+const informers = KINDS.map((k) => ({ k, informer: watch(k) }));
+console.log("[korepush-operator] watching", KINDS.map((k) => k.plural).join(", "));
+for (const { k, informer } of informers) void start(informer, k.plural);
 
-// Periodic resync: re-enqueue every CR so drift (e.g. a hand-deleted Deployment)
-// heals even without an event. Replaces the old in-server poll reconciler.
+// Periodic resync: re-enqueue every CR so drift heals even without an event.
 setInterval(async () => {
-  try {
-    const list = (await (listFn as () => Promise<KubernetesListObject<KoreApp>>)())
-      .items;
-    for (const item of list ?? []) enqueue(item);
-  } catch (e) {
-    console.error("[resync]", e);
+  for (const k of KINDS) {
+    try {
+      const list = (await (k.listFn as () => Promise<KubernetesListObject<KubernetesObject>>)())
+        .items;
+      for (const item of list ?? []) enqueue(k.plural, item);
+    } catch (e) {
+      console.error("[resync]", k.plural, e);
+    }
   }
 }, 90_000);

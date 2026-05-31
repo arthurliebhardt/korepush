@@ -15,8 +15,18 @@ metadata:
 rules:
   # The CRs it owns: spec (read/watch), status + finalizers (write).
   - apiGroups: ["korepush.io"]
-    resources: ["koreapps", "koreapps/status", "koreapps/finalizers"]
+    resources:
+      - koreapps
+      - koreapps/status
+      - koreapps/finalizers
+      - korespaces
+      - korespaces/status
+      - korespaces/finalizers
     verbs: ["get", "list", "watch", "update", "patch"]
+  # KoreSpace materialises a Namespace + ResourceQuota + LimitRange.
+  - apiGroups: [""]
+    resources: ["namespaces", "resourcequotas", "limitranges"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Workloads it materialises from a KoreApp spec.
   - apiGroups: ["apps"]
     resources: ["deployments"]

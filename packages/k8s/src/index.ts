@@ -26,6 +26,7 @@ export {
   getSpaceBySlug,
   createSpace,
   deleteSpace,
+  backfillKoreSpaces,
 } from "./spaces";
 export {
   listApps,

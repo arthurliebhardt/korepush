@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db, schema } from "@korepush/db";
-import { k8sClients, managedLabels } from "./client";
 import { slugify } from "./util";
+import { createKoreSpace, deleteKoreSpace } from "./koreapp";
 
 const NS_PREFIX = "ks-";
 
@@ -29,7 +29,8 @@ export async function createSpace(name: string, ownerId: string) {
     .returning();
 
   try {
-    await provisionNamespace(namespace, slug);
+    // The operator reconciles the KoreSpace into the Namespace + quota + limits.
+    await createKoreSpace(slug, { displayName: name });
     await db
       .update(schema.spaces)
       .set({ status: "running", updatedAt: new Date() })
@@ -45,39 +46,26 @@ export async function createSpace(name: string, ownerId: string) {
   return { ...space, status: "running" as const };
 }
 
-async function provisionNamespace(namespace: string, slug: string) {
-  const { core } = k8sClients();
-  const labels = managedLabels({ "korepush.io/space": slug });
-
-  await core.createNamespace({
-    body: { metadata: { name: namespace, labels } },
-  });
-
-  // Sensible starter quota; tunable per-space later.
-  await core.createNamespacedResourceQuota({
-    namespace,
-    body: {
-      metadata: { name: "korepush-quota", labels },
-      spec: {
-        hard: {
-          "requests.cpu": "2",
-          "requests.memory": "4Gi",
-          "limits.cpu": "4",
-          "limits.memory": "8Gi",
-          pods: "20",
-        },
-      },
-    },
-  });
-}
-
 export async function deleteSpace(slug: string) {
   const space = await getSpaceBySlug(slug);
   if (!space) return;
-  try {
-    await k8sClients().core.deleteNamespace({ name: space.namespace });
-  } catch {
-    // Namespace may already be gone; proceed to remove the record.
-  }
+  // Delete the KoreSpace CR; the operator's ownerReference GC removes the
+  // Namespace (and everything in it — KoreApp finalizers run as it terminates).
+  await deleteKoreSpace(slug);
   await db.delete(schema.spaces).where(eq(schema.spaces.id, space.id));
+}
+
+/**
+ * Adopt existing spaces into the operator: create a KoreSpace CR per space
+ * (idempotent — the operator then stamps an ownerRef on the existing Namespace,
+ * a metadata-only change). Run once on control-plane boot.
+ */
+export async function backfillKoreSpaces() {
+  for (const space of await listSpaces()) {
+    try {
+      await createKoreSpace(space.slug, { displayName: space.name });
+    } catch (err) {
+      console.error("[backfill-space]", space.slug, err);
+    }
+  }
 }
