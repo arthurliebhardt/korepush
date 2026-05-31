@@ -38,6 +38,16 @@ export default async function SpacePage({
     ...a,
     status: phaseToStatus(phases[a.slug]) ?? a.status,
   }));
+  // Group environments of one app (shared projectId) into a single card; a
+  // single-environment app is one group of size 1 and renders as before.
+  const projectMap = new Map<string, typeof apps>();
+  for (const a of apps) {
+    const g = projectMap.get(a.projectId);
+    if (g) g.push(a);
+    else projectMap.set(a.projectId, [a]);
+  }
+  const projects = [...projectMap.values()];
+  const baseDomain = process.env.KOREPUSH_BASE_DOMAIN ?? "localhost";
   const usage = await getSpaceMetrics(space.namespace).catch(() => null);
   // Connected GitHub repos for the deploy picker (VM can reach GitHub outbound).
   const repos = (await listAllConnectedRepos().catch(() => [])).map((r) => ({
@@ -100,25 +110,60 @@ export default async function SpacePage({
         </div>
       ) : (
         <ul className="space-y-3">
-          {apps.map((app) => (
-            <li key={app.id}>
-              <Link
-                href={`/spaces/${space.slug}/apps/${app.slug}`}
-                className="card flex items-center justify-between transition-colors hover:border-zinc-500"
-              >
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium">{app.name}</span>
-                    <StatusBadge status={app.status} />
-                  </div>
-                  <p className="mt-1 font-mono text-xs text-muted">
-                    {app.image}
-                  </p>
-                </div>
-                <span className="text-sm text-muted">:{app.port}</span>
-              </Link>
-            </li>
-          ))}
+          {projects.map((group) => {
+            if (group.length === 1) {
+              const app = group[0];
+              return (
+                <li key={app.id}>
+                  <Link
+                    href={`/spaces/${space.slug}/apps/${app.slug}`}
+                    className="card flex items-center justify-between transition-colors hover:border-zinc-500"
+                  >
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium">{app.name}</span>
+                        <StatusBadge status={app.status} />
+                      </div>
+                      <p className="mt-1 font-mono text-xs text-muted">
+                        {app.image}
+                      </p>
+                    </div>
+                    <span className="text-sm text-muted">:{app.port}</span>
+                  </Link>
+                </li>
+              );
+            }
+            // Multi-environment app: one card, an environment per row.
+            const root = group.find((a) => a.environment === "prod") ?? group[0];
+            return (
+              <li key={root.projectId} className="card">
+                <div className="mb-3 font-medium">{root.name}</div>
+                <ul className="space-y-2">
+                  {group.map((env) => (
+                    <li key={env.id}>
+                      <Link
+                        href={`/spaces/${space.slug}/apps/${env.slug}`}
+                        className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm transition-colors hover:border-zinc-500"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium uppercase text-muted">
+                            {env.environment}
+                          </span>
+                          <StatusBadge status={env.status} />
+                          <span className="font-mono text-xs text-muted">
+                            {env.gitRef}
+                          </span>
+                        </div>
+                        <span className="font-mono text-xs text-muted">
+                          {env.slug}.{space.slug}.{baseDomain}
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </li>
+            );
+          })}
         </ul>
       )}
 

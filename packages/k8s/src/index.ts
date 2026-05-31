@@ -34,6 +34,8 @@ export {
   createApp,
   deleteApp,
   createGitApp,
+  addEnvironment,
+  listProjectEnvs,
   triggerGitBuild,
   finalizeBuild,
   appsForRepoPush,

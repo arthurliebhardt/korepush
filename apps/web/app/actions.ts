@@ -8,6 +8,7 @@ import {
   createApp,
   deleteApp,
   createGitApp,
+  addEnvironment,
   triggerGitBuild,
   setControlPlaneDomain,
   getSpaceBySlug,
@@ -130,6 +131,37 @@ export async function createGitAppAction(input: {
     // once the build patches spec.image onto the CR.
     if (split) await setAppEnv(input.spaceSlug, app.slug, split);
     const token = await mintCloneTokenForRepo(input.repoUrl).catch(() => null);
+    const { deploymentId } = await triggerGitBuild(
+      input.spaceSlug,
+      app.slug,
+      "import",
+      token ?? undefined,
+    );
+    revalidatePath(`/spaces/${input.spaceSlug}`);
+    return { ok: true, appSlug: app.slug, deploymentId };
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  }
+}
+
+export async function addEnvironmentAction(input: {
+  spaceSlug: string;
+  appSlug: string;
+  branch: string;
+  envName: string;
+}): Promise<BuildActionResult> {
+  await requireUser();
+  try {
+    const app = await addEnvironment(
+      input.spaceSlug,
+      input.appSlug,
+      input.branch,
+      input.envName,
+    );
+    // Build the new environment from its branch (same path as import).
+    const token = app.repoUrl
+      ? await mintCloneTokenForRepo(app.repoUrl).catch(() => null)
+      : null;
     const { deploymentId } = await triggerGitBuild(
       input.spaceSlug,
       app.slug,

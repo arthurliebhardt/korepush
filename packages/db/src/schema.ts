@@ -117,6 +117,11 @@ export const apps = pgTable("apps", {
     .references(() => spaces.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   slug: text("slug").notNull(),
+  // Environments of one logical app share a projectId; each environment is its
+  // own row (own slug/branch/URL/env/db). The DB default makes every existing &
+  // new standalone app its own single-environment project.
+  projectId: uuid("project_id").defaultRandom().notNull(),
+  environment: text("environment").default("prod").notNull(),
   source: appSource("source").default("image").notNull(),
   // For source=image: the image ref. For git/dockerfile: filled after build.
   image: text("image"),

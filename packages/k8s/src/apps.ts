@@ -314,6 +314,83 @@ export async function createGitApp(input: CreateGitAppInput) {
   return app;
 }
 
+/** All environments of a project (sibling apps sharing a projectId). */
+export async function listProjectEnvs(spaceId: string, projectId: string) {
+  return db
+    .select()
+    .from(schema.apps)
+    .where(and(eq(schema.apps.spaceId, spaceId), eq(schema.apps.projectId, projectId)))
+    .orderBy(schema.apps.createdAt);
+}
+
+/**
+ * Add a branch-mapped environment to a git app: a sibling app sharing the
+ * project's id, tracking `branch`, with its own slug/URL/env/db. The push
+ * webhook already builds it on pushes to `branch` (it matches by repo+gitRef).
+ * The caller (action) then mints a clone token + triggers the first build.
+ */
+export async function addEnvironment(
+  spaceSlug: string,
+  appSlug: string,
+  branch: string,
+  envName: string,
+) {
+  const space = await getSpaceBySlug(spaceSlug);
+  if (!space) throw new Error("Space not found");
+  const parent = await getApp(space.id, appSlug);
+  if (!parent) throw new Error("App not found");
+  if (parent.source !== "git" || !parent.repoUrl) {
+    throw new Error("Environments are only supported for git apps");
+  }
+  const env = slugify(envName);
+  if (!env) throw new Error("Invalid environment name");
+
+  // Base the sibling slug on the project's prod root (so adding from any env
+  // yields `<root>-<env>`, not a compounding suffix).
+  const [root] = await db
+    .select()
+    .from(schema.apps)
+    .where(
+      and(
+        eq(schema.apps.projectId, parent.projectId),
+        eq(schema.apps.environment, "prod"),
+      ),
+    )
+    .limit(1);
+  const baseSlug = root?.slug ?? parent.slug;
+  if (env === "prod" || env === (root ?? parent).environment) {
+    throw new Error(`The "${env}" environment already exists`);
+  }
+  const slug = `${baseSlug}-${env}`.slice(0, 40);
+  if (await getApp(space.id, slug)) {
+    throw new Error("An environment with that name already exists");
+  }
+
+  const [app] = await db
+    .insert(schema.apps)
+    .values({
+      spaceId: space.id,
+      projectId: parent.projectId,
+      environment: env,
+      name: `${root?.name ?? parent.name} (${env})`,
+      slug,
+      source: "git",
+      repoUrl: parent.repoUrl,
+      gitRef: branch || "main",
+      installCmd: parent.installCmd,
+      buildCmd: parent.buildCmd,
+      startCmd: parent.startCmd,
+      rootDir: parent.rootDir,
+      port: parent.port,
+      replicas: parent.replicas,
+      githubInstallationId: parent.githubInstallationId,
+      status: "pending",
+    })
+    .returning();
+  await createKoreApp(space.namespace, slug, buildKoreAppSpec(app));
+  return app;
+}
+
 /** Queue a build: records a deployment and creates the build Job. */
 export async function triggerGitBuild(
   spaceSlug: string,

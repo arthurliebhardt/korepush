@@ -13,6 +13,8 @@ import {
   getNodeIp,
   getKoreAppPhase,
   phaseToStatus,
+  listProjectEnvs,
+  listKoreAppPhases,
 } from "@korepush/k8s";
 import { AppLive } from "@/components/app-live";
 import { AppMetrics } from "@/components/app-metrics";
@@ -25,6 +27,7 @@ import { AttachDatabase } from "@/components/attach-database";
 import { EnvEditor } from "@/components/env-editor";
 import { CustomDomains } from "@/components/custom-domains";
 import { StatusBadge } from "@/components/status-badge";
+import { AddEnvironment } from "@/components/add-environment";
 
 export const dynamic = "force-dynamic";
 
@@ -79,6 +82,12 @@ export default async function AppPage({
   const baseDomain = process.env.KOREPUSH_BASE_DOMAIN ?? "localhost";
   const autoHost = `${app.slug}.${space.slug}.${baseDomain}`;
 
+  // Sibling environments of this project (git apps only) for the switcher.
+  const envs = isGit ? await listProjectEnvs(space.id, app.projectId) : [];
+  const envPhases = isGit
+    ? await listKoreAppPhases(space.namespace).catch((): Record<string, string> => ({}))
+    : {};
+
   return (
     <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
       <Link
@@ -87,6 +96,29 @@ export default async function AppPage({
       >
         ← {space.name}
       </Link>
+
+      {isGit && (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {envs.map((e) => {
+            const active = e.slug === app.slug;
+            return (
+              <Link
+                key={e.id}
+                href={`/spaces/${space.slug}/apps/${e.slug}`}
+                className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs ${
+                  active
+                    ? "border-foreground"
+                    : "border-border text-muted hover:text-foreground"
+                }`}
+              >
+                {e.environment} ({e.gitRef})
+                <StatusBadge status={phaseToStatus(envPhases[e.slug]) ?? e.status} />
+              </Link>
+            );
+          })}
+          <AddEnvironment spaceSlug={space.slug} appSlug={app.slug} />
+        </div>
+      )}
 
       <div className="mt-4 mb-6 flex items-start justify-between">
         <div>
