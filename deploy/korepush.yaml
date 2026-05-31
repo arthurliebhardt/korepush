@@ -44,6 +44,14 @@ rules:
   - apiGroups: ["korepush.io"]
     resources: ["koreapps", "korespaces", "koredatabases"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # GitOps: read Flux sources + kustomizations to render each app's sync status
+  # in the dashboard (Flux applies the CRs; korepush only reads its state).
+  - apiGroups: ["source.toolkit.fluxcd.io"]
+    resources: ["gitrepositories"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["kustomize.toolkit.fluxcd.io"]
+    resources: ["kustomizations"]
+    verbs: ["get", "list", "watch"]
   - apiGroups: ["batch"]
     resources: ["jobs"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]

@@ -119,6 +119,25 @@ fi
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 
+# 3a-pre. Install Flux (GitOps engine — source + kustomize controllers only).
+#   Lets you sync KoreApp/KoreSpace/KoreDatabase manifests from a git repo; the
+#   korepush dashboard renders each app's sync status. CRDs are large →
+#   --server-side (like CNPG). Reuse an existing Flux if present.
+if [ -z "${KOREPUSH_SKIP_FLUX:-}" ]; then
+  if "$KUBECTL" get crd kustomizations.kustomize.toolkit.fluxcd.io >/dev/null 2>&1; then
+    log "Flux already present; using the existing installation."
+  else
+    log "Installing Flux…"
+    FLUX="$WORK/flux.yaml"
+    if [ -f "./deploy/flux.yaml" ]; then cp ./deploy/flux.yaml "$FLUX"
+    else curl -sfL "${KOREPUSH_FLUX_MANIFEST:-https://raw.githubusercontent.com/arthurliebhardt/korepush/main/deploy/flux.yaml}" -o "$FLUX" || die "Failed to download Flux manifest."
+    fi
+    "$KUBECTL" apply --server-side -f "$FLUX" || die "Failed to install Flux."
+  fi
+  "$KUBECTL" -n flux-system rollout status deploy/source-controller deploy/kustomize-controller --timeout=300s ||
+    err "Flux not ready yet; GitOps sync will start once its controllers are up."
+fi
+
 # 3a. Install cert-manager + Let's Encrypt ClusterIssuers (HTTPS for custom
 #     domains). cert-manager CRDs are large → --server-side (like CNPG). Its
 #     webhook must be Ready before Issuers apply, so wait then retry the apply.
