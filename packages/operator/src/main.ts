@@ -6,9 +6,10 @@ import {
   type KubernetesListObject,
   type KubernetesObject,
 } from "@kubernetes/client-node";
-import { GROUP, VERSION, PLURAL, KORESPACES } from "./types";
+import { GROUP, VERSION, PLURAL, KORESPACES, KOREDATABASES } from "./types";
 import { reconcile } from "./reconcile";
 import { reconcileSpace } from "./reconcile-space";
+import { reconcileDatabase } from "./reconcile-database";
 
 const kc = new KubeConfig();
 if (process.env.KUBERNETES_SERVICE_HOST) kc.loadFromCluster();
@@ -25,6 +26,7 @@ type KindDef = {
 const KINDS: KindDef[] = [
   { plural: PLURAL, reconcile },
   { plural: KORESPACES, reconcile: reconcileSpace },
+  { plural: KOREDATABASES, reconcile: reconcileDatabase },
 ].map((k) => ({
   ...k,
   // listClusterCustomObject enumerates across all namespaces for namespaced

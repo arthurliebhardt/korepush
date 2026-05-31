@@ -123,12 +123,13 @@ fi
 #     operator image unless KOREPUSH_OPERATOR_IMAGE overrides it; default for
 #     installs that predate the operator.
 log "Installing/refreshing the korepush CRDs + operator…"
-for crd in koreapp korespace; do
+for crd in koreapp korespace koredatabase; do
   fetch "./deploy/crds/${crd}.yaml" "$RAW/deploy/crds/${crd}.yaml" "$WORK/${crd}-crd.yaml"
   $KUBECTL apply -f "$WORK/${crd}-crd.yaml" || err "${crd} CRD not applied."
 done
 $KUBECTL wait --for=condition=Established \
-  crd/koreapps.korepush.io crd/korespaces.korepush.io --timeout=60s >/dev/null 2>&1 || true
+  crd/koreapps.korepush.io crd/korespaces.korepush.io crd/koredatabases.korepush.io \
+  --timeout=60s >/dev/null 2>&1 || true
 OP_IMAGE="${KOREPUSH_OPERATOR_IMAGE:-$($KUBECTL -n "$NS" get deploy korepush-operator \
   -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || echo ghcr.io/arthurliebhardt/korepush-operator:latest)}"
 fetch "./deploy/operator.yaml" "$RAW/deploy/operator.yaml" "$WORK/operator.yaml"

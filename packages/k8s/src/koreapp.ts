@@ -194,6 +194,51 @@ export async function deleteKoreSpace(name: string): Promise<void> {
     });
 }
 
+/* ── KoreDatabase (namespaced: the operator materialises a CNPG Cluster) ── */
+
+const KOREDATABASES = "koredatabases";
+
+export type KoreDatabaseSpec = {
+  engine?: string;
+  version?: number;
+  storage?: string;
+  instances?: number;
+};
+
+/** Create the KoreDatabase CR if absent (idempotent — backfill/adoption safe). */
+export async function createKoreDatabase(
+  namespace: string,
+  slug: string,
+  spec: KoreDatabaseSpec,
+): Promise<void> {
+  await k8sClients()
+    .custom.createNamespacedCustomObject({
+      group: GROUP,
+      version: VERSION,
+      namespace,
+      plural: KOREDATABASES,
+      body: {
+        apiVersion: `${GROUP}/${VERSION}`,
+        kind: "KoreDatabase",
+        metadata: { name: slug, namespace, labels: managedLabels({}) },
+        spec,
+      },
+    })
+    .catch((e: unknown) => {
+      if ((e as { code?: number })?.code === 409) return;
+      throw e;
+    });
+}
+
+export async function deleteKoreDatabase(namespace: string, slug: string): Promise<void> {
+  await k8sClients()
+    .custom.deleteNamespacedCustomObject({ group: GROUP, version: VERSION, namespace, plural: KOREDATABASES, name: slug })
+    .catch((e: unknown) => {
+      if ((e as { code?: number })?.code === 404) return;
+      throw e;
+    });
+}
+
 /** The CR's status.phase (operator-authoritative), for the UI to read. */
 export async function getKoreAppPhase(namespace: string, slug: string): Promise<string | null> {
   const cr = (await k8sClients()

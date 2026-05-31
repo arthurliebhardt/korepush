@@ -71,6 +71,7 @@ export {
   createDatabase,
   getDatabaseInfo,
   deleteDatabase,
+  backfillKoreDatabases,
 } from "./databases";
 export type { DatabaseInfo } from "./databases";
 export {

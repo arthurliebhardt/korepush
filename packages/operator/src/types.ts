@@ -67,6 +67,46 @@ export const GROUP = "korepush.io";
 export const VERSION = "v1alpha1";
 export const PLURAL = "koreapps";
 export const KORESPACES = "korespaces";
+export const KOREDATABASES = "koredatabases";
+
+export type KoreDatabaseSpec = {
+  engine?: string;
+  version?: number;
+  storage?: string;
+  instances?: number;
+};
+
+export type KoreDatabaseStatus = {
+  phase?: string;
+  connectionSecret?: string;
+  readyInstances?: number;
+  observedGeneration?: number;
+  conditions?: {
+    type: string;
+    status: "True" | "False" | "Unknown";
+    observedGeneration?: number;
+    lastTransitionTime: string;
+    reason: string;
+    message: string;
+  }[];
+};
+
+export type KoreDatabase = {
+  apiVersion: string;
+  kind: string;
+  metadata: {
+    name: string;
+    namespace: string;
+    uid?: string;
+    generation?: number;
+    resourceVersion?: string;
+    labels?: Record<string, string>;
+    deletionTimestamp?: Date;
+    finalizers?: string[];
+  };
+  spec: KoreDatabaseSpec;
+  status?: KoreDatabaseStatus;
+};
 
 export type KoreSpaceSpec = {
   displayName?: string;

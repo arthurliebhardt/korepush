@@ -42,7 +42,7 @@ rules:
   # deploy/env/db/domain/rollback, delete on app delete); the operator owns
   # status + the reconcile. Status is operator-owned, so no koreapps/status here.
   - apiGroups: ["korepush.io"]
-    resources: ["koreapps", "korespaces"]
+    resources: ["koreapps", "korespaces", "koredatabases"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["batch"]
     resources: ["jobs"]

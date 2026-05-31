@@ -207,15 +207,15 @@ log "Installing korepush CRDs…"
 if [ -d "./deploy/crds" ]; then
   "$KUBECTL" apply -f ./deploy/crds/ || die "Failed to install CRDs."
 else
-  for crd in koreapp korespace; do
+  for crd in koreapp korespace koredatabase; do
     curl -sfL "${KOREPUSH_CRD_BASE}/${crd}.yaml" -o "$WORK/${crd}.yaml" ||
       die "Failed to download ${crd} CRD."
     "$KUBECTL" apply -f "$WORK/${crd}.yaml" || die "Failed to install ${crd} CRD."
   done
 fi
 "$KUBECTL" wait --for=condition=Established \
-  crd/koreapps.korepush.io crd/korespaces.korepush.io --timeout=60s ||
-  err "CRDs not Established yet; the operator will retry."
+  crd/koreapps.korepush.io crd/korespaces.korepush.io crd/koredatabases.korepush.io \
+  --timeout=60s || err "CRDs not Established yet; the operator will retry."
 
 # 3. Fetch the deploy manifest (prefer a local copy when run from a checkout).
 MANIFEST="$WORK/korepush.yaml"

@@ -22,10 +22,17 @@ rules:
       - korespaces
       - korespaces/status
       - korespaces/finalizers
+      - koredatabases
+      - koredatabases/status
+      - koredatabases/finalizers
     verbs: ["get", "list", "watch", "update", "patch"]
   # KoreSpace materialises a Namespace + ResourceQuota + LimitRange.
   - apiGroups: [""]
     resources: ["namespaces", "resourcequotas", "limitranges"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # KoreDatabase materialises a CloudNativePG Cluster.
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Workloads it materialises from a KoreApp spec.
   - apiGroups: ["apps"]

@@ -1,8 +1,9 @@
 import { and, eq } from "drizzle-orm";
 import { db, schema } from "@korepush/db";
-import { k8sClients, managedLabels } from "./client";
-import { getSpaceBySlug } from "./spaces";
+import { k8sClients } from "./client";
+import { getSpaceBySlug, listSpaces } from "./spaces";
 import { slugify } from "./util";
+import { createKoreDatabase, deleteKoreDatabase } from "./koreapp";
 
 // CloudNativePG provisions a Postgres Cluster per database; it creates a
 // `<cluster>-app` Secret (key `uri` = connection string) and a `<cluster>-rw`
@@ -51,8 +52,8 @@ export async function createDatabase(input: { spaceSlug: string; name: string })
     .returning();
 
   try {
-    await ensureLimitRange(space.namespace);
-    await createCnpgCluster(space.namespace, space.slug, name);
+    // The operator reconciles the KoreDatabase into a CNPG Cluster.
+    await createKoreDatabase(space.namespace, slug, { engine: "postgres" });
   } catch (err) {
     await db
       .update(schema.databases)
@@ -61,39 +62,6 @@ export async function createDatabase(input: { spaceSlug: string; name: string })
     throw err;
   }
   return row;
-}
-
-async function createCnpgCluster(
-  namespace: string,
-  spaceSlug: string,
-  name: string,
-) {
-  const { custom } = k8sClients();
-  await custom.createNamespacedCustomObject({
-    group: CNPG_GROUP,
-    version: CNPG_VERSION,
-    namespace,
-    plural: "clusters",
-    body: {
-      apiVersion: `${CNPG_GROUP}/${CNPG_VERSION}`,
-      kind: "Cluster",
-      metadata: {
-        name,
-        namespace,
-        labels: managedLabels({ "korepush.io/space": spaceSlug }),
-      },
-      // No bootstrap block → CNPG creates db "app" owned by "app" + the
-      // `<name>-app` secret. instances:1 suits single-node local-path storage.
-      spec: {
-        instances: 1,
-        storage: { size: "5Gi" },
-        resources: {
-          requests: { cpu: "100m", memory: "256Mi" },
-          limits: { cpu: "1", memory: "1Gi" },
-        },
-      },
-    },
-  });
 }
 
 export type DatabaseInfo = {
@@ -146,43 +114,25 @@ export async function deleteDatabase(spaceSlug: string, slug: string) {
   if (!space) return;
   const row = await getDatabase(space.id, slug);
   if (!row) return;
-  try {
-    await k8sClients().custom.deleteNamespacedCustomObject({
-      group: CNPG_GROUP,
-      version: CNPG_VERSION,
-      namespace: space.namespace,
-      plural: "clusters",
-      name: clusterName(slug),
-    });
-  } catch {
-    // already gone
-  }
+  // Delete the KoreDatabase CR; the operator's ownerReference GC removes the
+  // CNPG Cluster. (The LimitRange is now owned by the KoreSpace.)
+  await deleteKoreDatabase(space.namespace, slug);
   await db.delete(schema.databases).where(eq(schema.databases.id, row.id));
 }
 
 /**
- * A LimitRange so pods without explicit requests/limits (e.g. CNPG's) still
- * satisfy the space ResourceQuota.
+ * Adopt existing databases into the operator: create a KoreDatabase CR per
+ * database (idempotent — the operator then stamps an ownerRef on the existing
+ * CNPG Cluster). Run once on control-plane boot.
  */
-async function ensureLimitRange(namespace: string) {
-  const { core } = k8sClients();
-  const existing = await core
-    .readNamespacedLimitRange({ name: "korepush-defaults", namespace })
-    .catch(() => null);
-  if (existing) return;
-  await core.createNamespacedLimitRange({
-    namespace,
-    body: {
-      metadata: { name: "korepush-defaults", namespace },
-      spec: {
-        limits: [
-          {
-            type: "Container",
-            _default: { cpu: "1", memory: "1Gi" },
-            defaultRequest: { cpu: "50m", memory: "64Mi" },
-          },
-        ],
-      },
-    },
-  });
+export async function backfillKoreDatabases() {
+  for (const space of await listSpaces()) {
+    for (const d of await listDatabases(space.id)) {
+      try {
+        await createKoreDatabase(space.namespace, d.slug, { engine: d.engine });
+      } catch (err) {
+        console.error("[backfill-db]", space.slug, d.slug, err);
+      }
+    }
+  }
 }
