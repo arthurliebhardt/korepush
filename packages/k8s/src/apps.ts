@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, or } from "drizzle-orm";
 import { db, schema } from "@korepush/db";
 import { k8sClients, managedLabels } from "./client";
 import { getSpaceBySlug, listSpaces } from "./spaces";
@@ -421,6 +421,55 @@ export async function finalizeBuild(deploymentId: string): Promise<string> {
     return "failed";
   }
   return dep.status;
+}
+
+/**
+ * Finalize every build whose Job has completed: deploy the image (PATCH
+ * spec.image) or mark it failed. finalizeBuild is otherwise only invoked when
+ * someone is looking at the app page / build logs, so a push-to-deploy build
+ * that finishes unobserved would never land — this closes that gap. Idempotent.
+ */
+export async function finalizePendingBuilds() {
+  const pending = await db
+    .select({ id: schema.deployments.id })
+    .from(schema.deployments)
+    .where(
+      or(
+        eq(schema.deployments.status, "building"),
+        eq(schema.deployments.status, "deploying"),
+      ),
+    )
+    .limit(50);
+  for (const d of pending) {
+    await finalizeBuild(d.id).catch((err) =>
+      console.error("[build-finalizer]", d.id, err),
+    );
+  }
+}
+
+let buildFinalizerTimer: ReturnType<typeof setInterval> | null = null;
+let buildFinalizerBusy = false;
+
+/**
+ * Poll for completed builds and finalize them (control-plane boot; single
+ * replica → no leader election). Builds stay control-plane (GitHub keys +
+ * BuildKit Jobs), so build completion drives spec.image from here — the
+ * operator only deploys once the image lands on the CR.
+ */
+export function startBuildFinalizer(intervalMs = 15_000) {
+  if (buildFinalizerTimer || process.env.KOREPUSH_DISABLE_BUILD_FINALIZER) return;
+  const tick = async () => {
+    if (buildFinalizerBusy) return; // never overlap a slow pass
+    buildFinalizerBusy = true;
+    try {
+      await finalizePendingBuilds();
+    } catch (err) {
+      console.error("[build-finalizer]", err);
+    } finally {
+      buildFinalizerBusy = false;
+    }
+  };
+  buildFinalizerTimer = setInterval(tick, intervalMs);
 }
 
 /**

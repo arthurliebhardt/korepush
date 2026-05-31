@@ -48,6 +48,7 @@ export {
   refreshAppDomainStatus,
   getNodeIp,
   backfillKoreApps,
+  startBuildFinalizer,
 } from "./apps";
 export type { CreateAppInput, CreateGitAppInput } from "./apps";
 export {

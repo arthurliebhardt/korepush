@@ -6,8 +6,11 @@ export async function register() {
   if (process.env.NEXT_RUNTIME !== "nodejs") return;
   if (!process.env.KUBERNETES_SERVICE_HOST) return; // only in-cluster
   try {
-    const { backfillKoreApps } = await import("@korepush/k8s");
+    const { backfillKoreApps, startBuildFinalizer } = await import("@korepush/k8s");
     await backfillKoreApps();
+    // Deploy completed builds independent of the UI (push-to-deploy lands even
+    // when nobody is watching the page).
+    startBuildFinalizer();
   } catch {
     // ignore — the operator's resync also adopts CRs once they exist
   }
