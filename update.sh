@@ -69,18 +69,6 @@ if ! $KUBECTL get ns korepush-monitoring >/dev/null 2>&1; then
   echo "    Grafana admin password: ${GPW}"
 fi
 
-# 2b. Flux (GitOps engine) — install only if absent (an older install predates
-#     it). Lets you sync korepush CRs from git; the dashboard shows sync status.
-if [ -z "${KOREPUSH_SKIP_FLUX:-}" ] &&
-   ! $KUBECTL get crd kustomizations.kustomize.toolkit.fluxcd.io >/dev/null 2>&1; then
-  log "Installing Flux…"
-  fetch "./deploy/flux.yaml" "$RAW/deploy/flux.yaml" "$WORK/flux.yaml"
-  $KUBECTL apply --server-side -f "$WORK/flux.yaml" || err "Flux not installed."
-  $KUBECTL -n flux-system rollout status \
-    deploy/source-controller deploy/kustomize-controller --timeout=300s ||
-    err "Flux not ready yet."
-fi
-
 # 3. Refresh RBAC — apply ONLY the ClusterRole + ClusterRoleBinding (newer
 #    releases add rules). These carry no secrets/placeholders, so re-applying
 #    is safe; the Secrets, Ingress (your domain/TLS), Postgres and registry are

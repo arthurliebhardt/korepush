@@ -22,8 +22,6 @@ import {
   addAppDomain,
   removeAppDomain,
   refreshAppDomainStatus,
-  connectGitOpsRepo,
-  disconnectGitOpsRepo,
 } from "@korepush/k8s";
 import { mintCloneTokenForRepo, detectPort } from "@/lib/github/app";
 import { detectProject } from "@/lib/github/detect";
@@ -380,40 +378,6 @@ export async function setDomainAction(
       email: session.user.email,
       useStaging,
     });
-    revalidatePath("/settings");
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: errorMessage(err) };
-  }
-}
-
-export async function connectGitOpsRepoAction(input: {
-  url: string;
-  branch?: string;
-  path?: string;
-}): Promise<ActionResult> {
-  const session = await requireUser();
-  if ((session.user as { role?: string }).role !== "admin") {
-    return { ok: false, error: "Only an admin can connect a GitOps repo." };
-  }
-  try {
-    await connectGitOpsRepo(input);
-    revalidatePath("/settings");
-    return { ok: true };
-  } catch (err) {
-    return { ok: false, error: errorMessage(err) };
-  }
-}
-
-export async function disconnectGitOpsRepoAction(
-  name: string,
-): Promise<ActionResult> {
-  const session = await requireUser();
-  if ((session.user as { role?: string }).role !== "admin") {
-    return { ok: false, error: "Only an admin can disconnect a GitOps repo." };
-  }
-  try {
-    await disconnectGitOpsRepo(name);
     revalidatePath("/settings");
     return { ok: true };
   } catch (err) {

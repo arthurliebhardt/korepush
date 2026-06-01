@@ -89,13 +89,3 @@ export type {
 } from "./metrics";
 export { slugify } from "./util";
 export { getKoreAppPhase, listKoreAppPhases, phaseToStatus } from "./koreapp";
-export { reconcileMirror, managedByGitOps } from "./apps";
-export {
-  getGitOpsStatus,
-  isGitOpsManaged,
-  connectGitOpsRepo,
-  listGitOpsSources,
-  disconnectGitOpsRepo,
-} from "./gitops";
-export type { GitOpsStatus, GitOpsSource } from "./gitops";
-export { reconcileSpaceMirror } from "./spaces";

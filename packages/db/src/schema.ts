@@ -122,9 +122,6 @@ export const apps = pgTable("apps", {
   // new standalone app its own single-environment project.
   projectId: uuid("project_id").defaultRandom().notNull(),
   environment: text("environment").default("prod").notNull(),
-  // 'gitops' when Flux owns this app (created/synced from git) → the UI renders
-  // it read-only; null = created via the UI (the normal, editable case).
-  managedBy: text("managed_by"),
   source: appSource("source").default("image").notNull(),
   // For source=image: the image ref. For git/dockerfile: filled after build.
   image: text("image"),

@@ -9,7 +9,6 @@ import {
   getSpaceMetrics,
   listKoreAppPhases,
   phaseToStatus,
-  reconcileMirror,
 } from "@korepush/k8s";
 import { listAllConnectedRepos } from "@/lib/github/app";
 import { StatusBadge } from "@/components/status-badge";
@@ -29,9 +28,6 @@ export default async function SpacePage({
   const space = await getSpaceBySlug(slug);
   if (!space) notFound();
 
-  // Surface apps created outside the UI (Flux/kubectl) by backfilling a mirror
-  // row for any KoreApp that lacks one — then they render like any other app.
-  await reconcileMirror(space.id, space.namespace).catch(() => {});
   // Badge from the operator's live CR status.phase (the DB status is only a
   // mutation-time mirror); fall back to it when a CR has no phase yet.
   const appRows = await listApps(space.id);
@@ -127,11 +123,6 @@ export default async function SpacePage({
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{app.name}</span>
                         <StatusBadge status={app.status} />
-                        {app.managedBy === "gitops" && (
-                          <span className="rounded-full border border-border px-2 py-0.5 text-[10px] text-muted">
-                            GitOps
-                          </span>
-                        )}
                       </div>
                       <p className="mt-1 font-mono text-xs text-muted">
                         {app.image}

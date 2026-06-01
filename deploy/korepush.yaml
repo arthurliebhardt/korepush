@@ -44,14 +44,6 @@ rules:
   - apiGroups: ["korepush.io"]
     resources: ["koreapps", "korespaces", "koredatabases"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  # GitOps: read Flux state for sync status AND author the source objects from
-  # the UI "Connect repo" flow (so users never touch kubectl/Flux directly).
-  - apiGroups: ["source.toolkit.fluxcd.io"]
-    resources: ["gitrepositories"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
-  - apiGroups: ["kustomize.toolkit.fluxcd.io"]
-    resources: ["kustomizations"]
-    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   - apiGroups: ["batch"]
     resources: ["jobs"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
