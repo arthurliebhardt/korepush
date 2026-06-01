@@ -1,5 +1,6 @@
 import { eq } from "drizzle-orm";
 import { db, schema } from "@korepush/db";
+import { k8sClients } from "./client";
 import { slugify } from "./util";
 import { createKoreSpace, deleteKoreSpace } from "./koreapp";
 
@@ -67,5 +68,42 @@ export async function backfillKoreSpaces() {
     } catch (err) {
       console.error("[backfill-space]", space.slug, err);
     }
+  }
+}
+
+/**
+ * Reverse-sync: surface KoreSpaces created outside the UI (Flux/kubectl) by
+ * backfilling a spaces row for each that lacks one (owned by the bootstrap
+ * admin). Run before listing spaces on the dashboard. Idempotent.
+ */
+export async function reconcileSpaceMirror() {
+  const res = (await k8sClients()
+    .custom.listClusterCustomObject({ group: "korepush.io", version: "v1alpha1", plural: "korespaces" })
+    .catch(() => null)) as {
+    items?: { metadata?: { name?: string }; spec?: { displayName?: string } }[];
+  } | null;
+  const crs = res?.items ?? [];
+  if (!crs.length) return;
+  const [admin] = await db
+    .select({ id: schema.user.id })
+    .from(schema.user)
+    .where(eq(schema.user.role, "admin"))
+    .limit(1);
+  if (!admin) return; // no admin yet (pre-setup) → nothing to own them
+  const existing = new Set((await listSpaces()).map((s) => s.slug));
+  for (const cr of crs) {
+    const slug = cr.metadata?.name;
+    if (!slug || existing.has(slug)) continue;
+    await db
+      .insert(schema.spaces)
+      .values({
+        name: cr.spec?.displayName ?? slug,
+        slug,
+        namespace: `${NS_PREFIX}${slug}`,
+        ownerId: admin.id,
+        status: "running",
+      })
+      .onConflictDoNothing()
+      .catch((err) => console.error("[space-mirror]", slug, err));
   }
 }

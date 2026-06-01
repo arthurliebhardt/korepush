@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/session";
-import { getControlPlaneInfo } from "@korepush/k8s";
+import { getControlPlaneInfo, listGitOpsSources } from "@korepush/k8s";
 import { DomainSettings } from "@/components/domain-settings";
+import { GitOpsSettings } from "@/components/gitops-settings";
 import { getAppConfig } from "@/lib/github/config";
 import { listInstallations } from "@/lib/github/app";
 
@@ -22,6 +23,7 @@ export default async function SettingsPage() {
 
   const ghApp = await getAppConfig().catch(() => null);
   const installations = ghApp ? await listInstallations().catch(() => []) : [];
+  const gitopsSources = await listGitOpsSources().catch(() => []);
 
   return (
     <div className="mx-auto w-full max-w-2xl flex-1 px-6 py-8">
@@ -90,12 +92,22 @@ export default async function SettingsPage() {
       </div>
 
       {/* ── Domain ── */}
-      <div className="space-y-3">
+      <div className="mb-8 space-y-3">
         <h2 className="text-sm font-medium text-muted">Domain</h2>
         {unavailable ? (
           <div className="card text-sm text-muted">{unavailable}</div>
         ) : (
           <DomainSettings hosts={hosts} />
+        )}
+      </div>
+
+      {/* ── GitOps ── */}
+      <div className="space-y-3">
+        <h2 className="text-sm font-medium text-muted">GitOps</h2>
+        {unavailable ? (
+          <div className="card text-sm text-muted">{unavailable}</div>
+        ) : (
+          <GitOpsSettings sources={gitopsSources} />
         )}
       </div>
     </div>

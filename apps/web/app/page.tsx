@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/session";
-import { listSpaces, clusterReachable } from "@korepush/k8s";
+import { listSpaces, clusterReachable, reconcileSpaceMirror } from "@korepush/k8s";
 import { StatusBadge } from "@/components/status-badge";
 import { CreateSpace } from "@/components/create-space";
 import { SignOutButton } from "@/components/sign-out-button";
@@ -9,6 +9,8 @@ export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const session = await requireUser();
+  // Surface spaces created outside the UI (Flux/kubectl) before listing.
+  await reconcileSpaceMirror().catch(() => {});
   const [spaces, clusterOk] = await Promise.all([
     listSpaces(),
     clusterReachable(),
