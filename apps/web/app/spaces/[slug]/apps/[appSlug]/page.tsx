@@ -145,6 +145,7 @@ export default async function AppPage({
           appSlug={app.slug}
           env={app.env}
           secretKeys={app.secretKeys}
+          dbEnvVar={app.dbEnvVar}
         />
         <CustomDomains
           spaceSlug={space.slug}

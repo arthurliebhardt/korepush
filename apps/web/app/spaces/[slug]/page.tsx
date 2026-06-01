@@ -12,9 +12,11 @@ import {
 } from "@korepush/k8s";
 import { listAllConnectedRepos } from "@/lib/github/app";
 import { StatusBadge } from "@/components/status-badge";
+import { BlankEnvBadge } from "@/components/blank-env-badge";
 import { CreateApp } from "@/components/create-app";
 import { CreateDatabase } from "@/components/create-database";
 import { DatabaseCard } from "@/components/database-card";
+import { blankEnvKeys } from "@/lib/env-warnings";
 
 export const dynamic = "force-dynamic";
 
@@ -123,6 +125,10 @@ export default async function SpacePage({
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{app.name}</span>
                         <StatusBadge status={app.status} />
+                        <BlankEnvBadge
+                          keys={blankEnvKeys(app.env)}
+                          dbEnvVar={app.dbEnvVar}
+                        />
                       </div>
                       <p className="mt-1 font-mono text-xs text-muted">
                         {app.image}
@@ -150,6 +156,10 @@ export default async function SpacePage({
                             {env.environment}
                           </span>
                           <StatusBadge status={env.status} />
+                          <BlankEnvBadge
+                            keys={blankEnvKeys(env.env)}
+                            dbEnvVar={env.dbEnvVar}
+                          />
                           <span className="font-mono text-xs text-muted">
                             {env.gitRef}
                           </span>

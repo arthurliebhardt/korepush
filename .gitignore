@@ -47,3 +47,6 @@ next-env.d.ts
 # local tooling
 .playwright-mcp/
 *.local.jpeg
+
+# example/test projects (deployed as their own repos, not part of the monorepo)
+/examples/

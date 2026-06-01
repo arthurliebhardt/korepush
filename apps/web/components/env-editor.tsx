@@ -38,11 +38,13 @@ export function EnvEditor({
   appSlug,
   env,
   secretKeys,
+  dbEnvVar = "DATABASE_URL",
 }: {
   spaceSlug: string;
   appSlug: string;
   env: Record<string, string>;
   secretKeys: string[];
+  dbEnvVar?: string;
 }) {
   const router = useRouter();
   const nextId = useRef(Object.keys(env).length + secretKeys.length);
@@ -165,46 +167,68 @@ export function EnvEditor({
         <p className="text-sm text-muted">No variables yet.</p>
       ) : (
         <div className="space-y-2">
-          {rows.map((r) => (
-            <div key={r.id} className="flex items-center gap-2">
-              <input
-                className="input w-1/3 font-mono text-xs"
-                placeholder="KEY"
-                value={r.key}
-                onChange={(e) => update(r.id, { key: e.target.value })}
-              />
-              <input
-                className="input flex-1 font-mono text-xs"
-                type={r.secret ? "password" : "text"}
-                placeholder={
-                  r.existingSecret ? "•••••• (unchanged)" : "value"
-                }
-                value={r.value}
-                onChange={(e) => update(r.id, { value: e.target.value })}
-              />
-              <label
-                className="flex items-center gap-1 text-xs text-muted"
-                title="Store as a secret (value kept in a k8s Secret, never in the database or the pod spec)"
-              >
-                <input
-                  type="checkbox"
-                  checked={r.secret}
-                  onChange={(e) =>
-                    update(r.id, { secret: e.target.checked })
-                  }
-                />
-                secret
-              </label>
-              <button
-                type="button"
-                className="text-muted hover:text-danger"
-                onClick={() => removeRow(r.id)}
-                aria-label="Remove"
-              >
-                ✕
-              </button>
-            </div>
-          ))}
+          {rows.map((r) => {
+            // A plain (non-secret) var with a key but an empty value is saved as
+            // an explicit "". For the database var that silently overrides the
+            // connection string injected on attach, so call it out specifically.
+            const blank =
+              !r.secret &&
+              !r.existingSecret &&
+              r.key.trim() !== "" &&
+              r.value === "";
+            const dbBlank = blank && r.key.trim() === dbEnvVar;
+            return (
+              <div key={r.id} className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <input
+                    className="input w-1/3 font-mono text-xs"
+                    placeholder="KEY"
+                    value={r.key}
+                    onChange={(e) => update(r.id, { key: e.target.value })}
+                  />
+                  <input
+                    className={`input flex-1 font-mono text-xs ${
+                      blank ? "border-warn" : ""
+                    }`}
+                    type={r.secret ? "password" : "text"}
+                    placeholder={
+                      r.existingSecret ? "•••••• (unchanged)" : "value"
+                    }
+                    value={r.value}
+                    onChange={(e) => update(r.id, { value: e.target.value })}
+                  />
+                  <label
+                    className="flex items-center gap-1 text-xs text-muted"
+                    title="Store as a secret (value kept in a k8s Secret, never in the database or the pod spec)"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={r.secret}
+                      onChange={(e) =>
+                        update(r.id, { secret: e.target.checked })
+                      }
+                    />
+                    secret
+                  </label>
+                  <button
+                    type="button"
+                    className="text-muted hover:text-danger"
+                    onClick={() => removeRow(r.id)}
+                    aria-label="Remove"
+                  >
+                    ✕
+                  </button>
+                </div>
+                {blank && (
+                  <p className="pl-1 text-xs text-warn">
+                    {dbBlank
+                      ? `Blank value — this overrides the database connection injected when you attach a database, so the app won't connect. Remove this row (or set a value).`
+                      : `Blank value — saved as an empty string. Remove the row if you didn't mean to set ${r.key.trim()} empty.`}
+                  </p>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 
