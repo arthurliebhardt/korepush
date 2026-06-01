@@ -1,0 +1,21 @@
+# Commit this to your manifests repo. Flux applies it; korepush's operator
+# reconciles it into a Deployment + Service + HTTPRoute, and the dashboard shows
+# it tagged "GitOps" (read-only — edit it here in git).
+apiVersion: korepush.io/v1alpha1
+kind: KoreApp
+metadata:
+  name: web
+  namespace: ks-myspace # the space's namespace (ks-<space-slug>); must exist
+spec:
+  source: image
+  image: nginx:alpine
+  port: 80
+  replicas: 1
+  env:
+    - name: GREETING
+      value: hello
+  # domains:
+  #   - host: web.example.com
+  # database:
+  #   name: web-db        # a KoreDatabase in the same namespace
+  #   envVar: DATABASE_URL

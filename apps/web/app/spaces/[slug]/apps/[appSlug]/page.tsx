@@ -15,6 +15,8 @@ import {
   phaseToStatus,
   listProjectEnvs,
   listKoreAppPhases,
+  managedByGitOps,
+  getGitOpsStatus,
 } from "@korepush/k8s";
 import { AppLive } from "@/components/app-live";
 import { AppMetrics } from "@/components/app-metrics";
@@ -62,6 +64,11 @@ export default async function AppPage({
   const initialStatus =
     phaseToStatus(await getKoreAppPhase(space.namespace, app.slug).catch(() => null)) ??
     app.status;
+  // GitOps/Flux-managed apps are read-only in the UI (edits would be reverted).
+  const managed = managedByGitOps(app);
+  const gitops = managed
+    ? await getGitOpsStatus(space.namespace, app.slug).catch(() => null)
+    : null;
 
   const databases = (await listDatabases(space.id)).map((d) => ({
     id: d.id,
@@ -116,7 +123,7 @@ export default async function AppPage({
               </Link>
             );
           })}
-          <AddEnvironment spaceSlug={space.slug} appSlug={app.slug} />
+          {!managed && <AddEnvironment spaceSlug={space.slug} appSlug={app.slug} />}
         </div>
       )}
 
@@ -127,33 +134,67 @@ export default async function AppPage({
             {isGit ? app.repoUrl : app.image} · :{app.port} · {space.namespace}
           </p>
         </div>
-        {isGit && (
+        {isGit && !managed && (
           <RedeployButton spaceSlug={space.slug} appSlug={app.slug} />
         )}
       </div>
 
-      <div className="mb-5 space-y-5">
-        <AttachDatabase
-          spaceSlug={space.slug}
-          appSlug={app.slug}
-          databases={databases}
-          attachedDbId={app.attachedDbId}
-          dbEnvVar={app.dbEnvVar}
-        />
-        <EnvEditor
-          spaceSlug={space.slug}
-          appSlug={app.slug}
-          env={app.env}
-          secretKeys={app.secretKeys}
-        />
-        <CustomDomains
-          spaceSlug={space.slug}
-          appSlug={app.slug}
-          initial={appDomains}
-          serverIp={nodeIp}
-          autoHost={autoHost}
-        />
-      </div>
+      {managed ? (
+        <div className="card mb-5 space-y-1.5">
+          <div className="flex items-center gap-2">
+            <span className="font-medium">Managed by GitOps</span>
+            <StatusBadge
+              status={
+                gitops?.ready === false
+                  ? "failed"
+                  : gitops?.ready
+                    ? "running"
+                    : "provisioning"
+              }
+            />
+          </div>
+          <p className="text-xs text-muted">
+            Synced from git by Flux — change it in the repo, not the dashboard.
+          </p>
+          {gitops?.repoUrl && (
+            <p className="font-mono text-xs text-muted">
+              {gitops.repoUrl}
+              {gitops.revision ? ` @ ${gitops.revision}` : ""}
+            </p>
+          )}
+          {gitops?.kustomization && (
+            <p className="font-mono text-xs text-muted">
+              kustomization: {gitops.kustomization}
+            </p>
+          )}
+          {gitops?.ready === false && gitops.message && (
+            <p className="text-xs text-danger">{gitops.message}</p>
+          )}
+        </div>
+      ) : (
+        <div className="mb-5 space-y-5">
+          <AttachDatabase
+            spaceSlug={space.slug}
+            appSlug={app.slug}
+            databases={databases}
+            attachedDbId={app.attachedDbId}
+            dbEnvVar={app.dbEnvVar}
+          />
+          <EnvEditor
+            spaceSlug={space.slug}
+            appSlug={app.slug}
+            env={app.env}
+            secretKeys={app.secretKeys}
+          />
+          <CustomDomains
+            spaceSlug={space.slug}
+            appSlug={app.slug}
+            initial={appDomains}
+            serverIp={nodeIp}
+            autoHost={autoHost}
+          />
+        </div>
+      )}
 
       {buildId ? (
         <BuildLogs
@@ -191,7 +232,7 @@ export default async function AppPage({
                   const tag = d.image?.split(":").pop() ?? "—";
                   const isCurrent = !!d.image && d.image === app.image;
                   const canRollback =
-                    d.status === "succeeded" && !!d.image && !isCurrent;
+                    !managed && d.status === "succeeded" && !!d.image && !isCurrent;
                   return (
                     <li
                       key={d.id}

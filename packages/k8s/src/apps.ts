@@ -31,6 +31,91 @@ import {
 } from "./koreapp";
 
 export { getNodeIp } from "./routing";
+import { isGitOpsManaged } from "./gitops";
+
+const KGROUP = "korepush.io";
+const KVERSION = "v1alpha1";
+
+/** True when Flux owns this app (created/synced from git) → UI is read-only. */
+export function managedByGitOps(app: { managedBy?: string | null }): boolean {
+  return app.managedBy === "gitops";
+}
+
+/** Refuse a UI mutation on a Flux-managed app — a UI edit would be reverted by
+ *  Flux on its next sync, so block it with a clear message. */
+function assertNotManaged(app: { managedBy?: string | null }) {
+  if (managedByGitOps(app)) {
+    throw new Error(
+      "This app is managed by GitOps (Flux) — change it in its git repo, not the dashboard.",
+    );
+  }
+}
+
+type KoreAppCR = {
+  metadata?: { name?: string; labels?: Record<string, string> };
+  spec?: {
+    source?: string;
+    image?: string;
+    git?: {
+      repoUrl?: string;
+      ref?: string;
+      rootDir?: string;
+      installCmd?: string;
+      buildCmd?: string;
+      startCmd?: string;
+    };
+    port?: number;
+    replicas?: number;
+    env?: { name: string; value?: string }[];
+    database?: { envVar?: string };
+  };
+};
+
+/** Create a mirror `apps` row from an externally-created KoreApp CR (the inverse
+ *  of buildKoreAppSpec) so it shows in the dashboard. Flux-labelled CRs are
+ *  flagged managedBy='gitops' (→ read-only UI). */
+async function backfillMirrorRow(spaceId: string, cr: KoreAppCR) {
+  const slug = cr.metadata!.name!;
+  const spec = cr.spec ?? {};
+  const env: Record<string, string> = {};
+  for (const e of spec.env ?? []) if (e.value != null) env[e.name] = e.value;
+  await db.insert(schema.apps).values({
+    spaceId,
+    name: cr.metadata?.labels?.["korepush.io/display-name"] ?? slug,
+    slug,
+    environment: cr.metadata?.labels?.["korepush.io/environment"] ?? "prod",
+    managedBy: isGitOpsManaged(cr.metadata?.labels) ? "gitops" : null,
+    source: spec.source === "git" ? "git" : "image",
+    image: spec.image ?? null,
+    repoUrl: spec.git?.repoUrl ?? null,
+    gitRef: spec.git?.ref ?? "main",
+    installCmd: spec.git?.installCmd ?? null,
+    buildCmd: spec.git?.buildCmd ?? null,
+    startCmd: spec.git?.startCmd ?? null,
+    rootDir: spec.git?.rootDir ?? null,
+    port: spec.port ?? 3000,
+    replicas: spec.replicas ?? 1,
+    env,
+    dbEnvVar: spec.database?.envVar ?? "DATABASE_URL",
+    status: "running",
+  });
+}
+
+/** Reverse-sync: surface KoreApps created outside the UI (Flux/kubectl) in the
+ *  dashboard by backfilling a mirror row for each that lacks one. Idempotent. */
+export async function reconcileMirror(spaceId: string, namespace: string) {
+  const res = (await k8sClients()
+    .custom.listNamespacedCustomObject({ group: KGROUP, version: KVERSION, namespace, plural: "koreapps" })
+    .catch(() => null)) as { items?: KoreAppCR[] } | null;
+  const crs = res?.items ?? [];
+  if (!crs.length) return;
+  const existing = new Set((await listApps(spaceId)).map((a) => a.slug));
+  for (const cr of crs) {
+    const slug = cr.metadata?.name;
+    if (!slug || existing.has(slug)) continue;
+    await backfillMirrorRow(spaceId, cr).catch((e) => console.error("[mirror]", slug, e));
+  }
+}
 
 export async function listApps(spaceId: string) {
   return db
@@ -124,6 +209,7 @@ export async function addAppDomain(
   if (!space) throw new Error("Space not found");
   const app = await getApp(space.id, appSlug);
   if (!app) throw new Error("App not found");
+  assertNotManaged(app);
 
   const host = hostRaw.trim().toLowerCase();
   if (!DOMAIN_RE.test(host)) {
@@ -162,6 +248,7 @@ export async function removeAppDomain(
   if (!space) return;
   const app = await getApp(space.id, appSlug);
   if (!app) return;
+  assertNotManaged(app);
   const [d] = await db
     .select()
     .from(schema.appDomains)
@@ -339,6 +426,7 @@ export async function addEnvironment(
   if (!space) throw new Error("Space not found");
   const parent = await getApp(space.id, appSlug);
   if (!parent) throw new Error("App not found");
+  assertNotManaged(parent);
   if (parent.source !== "git" || !parent.repoUrl) {
     throw new Error("Environments are only supported for git apps");
   }
@@ -402,6 +490,7 @@ export async function triggerGitBuild(
   if (!space) throw new Error("Space not found");
   const app = await getApp(space.id, appSlug);
   if (!app) throw new Error("App not found");
+  assertNotManaged(app);
   if (app.source !== "git" || !app.repoUrl) {
     throw new Error("App is not a git app");
   }
@@ -565,6 +654,7 @@ export async function rollbackDeployment(
   if (!space) throw new Error("Space not found");
   const app = await getApp(space.id, appSlug);
   if (!app) throw new Error("App not found");
+  assertNotManaged(app);
 
   const [target] = await db
     .select()
@@ -627,6 +717,7 @@ export async function appsForRepoPush(repoFullName: string, branch: string) {
       spaceSlug: schema.spaces.slug,
       repoUrl: schema.apps.repoUrl,
       gitRef: schema.apps.gitRef,
+      managedBy: schema.apps.managedBy,
     })
     .from(schema.apps)
     .innerJoin(schema.spaces, eq(schema.apps.spaceId, schema.spaces.id))
@@ -643,6 +734,7 @@ export async function appsForRepoPush(repoFullName: string, branch: string) {
   return rows
     .filter(
       (r) =>
+        r.managedBy !== "gitops" && // Flux deploys managed apps, not our builder
         r.repoUrl &&
         norm(r.repoUrl) === target &&
         (r.gitRef || "main") === branch,
@@ -690,6 +782,7 @@ export async function setAppEnv(
   if (!space) throw new Error("Space not found");
   const app = await getApp(space.id, appSlug);
   if (!app) throw new Error("App not found");
+  assertNotManaged(app);
 
   // Don't let a var collide with the attached-database injection.
   if (app.attachedDbId && app.dbEnvVar) {
@@ -771,6 +864,7 @@ export async function attachDatabase(
   if (!space) throw new Error("Space not found");
   const app = await getApp(space.id, appSlug);
   if (!app) throw new Error("App not found");
+  assertNotManaged(app);
   const [database] = await db
     .select()
     .from(schema.databases)
@@ -798,6 +892,7 @@ export async function detachDatabase(spaceSlug: string, appSlug: string) {
   if (!space) return;
   const app = await getApp(space.id, appSlug);
   if (!app) return;
+  assertNotManaged(app);
   await db
     .update(schema.apps)
     .set({ attachedDbId: null, updatedAt: new Date() })
@@ -851,6 +946,7 @@ export async function deleteApp(spaceSlug: string, slug: string) {
   if (!space) return;
   const app = await getApp(space.id, slug);
   if (!app) return;
+  assertNotManaged(app);
 
   await deleteKoreApp(space.namespace, slug);
   await k8sClients()
