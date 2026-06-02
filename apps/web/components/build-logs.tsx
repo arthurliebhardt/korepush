@@ -15,6 +15,7 @@ export function BuildLogs({
 }) {
   const router = useRouter();
   const [status, setStatus] = useState("building");
+  const [settled, setSettled] = useState(false);
   const [note, setNote] = useState<string>("");
   const [logs, setLogs] = useState<string[]>([]);
   const logRef = useRef<HTMLDivElement>(null);
@@ -30,12 +31,25 @@ export function BuildLogs({
     es.addEventListener("done", (e) => {
       const s = (e as MessageEvent).data;
       setStatus(s);
+      setSettled(true);
       es.close();
       // Reflect the deployed app (or failure) once the build settles.
       setTimeout(() => router.refresh(), 1200);
     });
     return () => es.close();
   }, [spaceSlug, appSlug, deploymentId, router]);
+
+  // Safety net for the build→running transition: if the `done` event is missed
+  // (dropped stream, build finished while unwatched, Job-status lag), poll-refresh
+  // so the server re-finalizes the build and swaps in the live view. `buildId`
+  // stays constant while building, so this re-render keeps BuildLogs mounted (the
+  // log SSE + scroll are untouched); it unmounts only once the deployment leaves
+  // "building". Tied to this deployment, so it's redeploy-safe.
+  useEffect(() => {
+    if (settled) return;
+    const id = setInterval(() => router.refresh(), 5000);
+    return () => clearInterval(id);
+  }, [settled, router]);
 
   useEffect(() => {
     logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
