@@ -7,6 +7,7 @@ import {
   jsonb,
   uuid,
   pgEnum,
+  index,
   uniqueIndex,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
@@ -209,7 +210,12 @@ export const deployments = pgTable("deployments", {
   trigger: text("trigger").default("manual").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   finishedAt: timestamp("finished_at"),
-});
+}, (t) => [
+  // deployments is the one unbounded table (a row per build/deploy/rollback) and
+  // is always queried by appId ordered by createdAt desc (build history, latest
+  // building). Postgres doesn't auto-index FKs, so add the composite explicitly.
+  index("deployments_app_created_idx").on(t.appId, t.createdAt.desc()),
+]);
 
 // Singleton config for the platform's GitHub App (created via the manifest
 // flow). Secret fields are stored encrypted (see apps/web/lib/github/config).

@@ -1,0 +1,1 @@
+CREATE INDEX "deployments_app_created_idx" ON "deployments" USING btree ("app_id","created_at" DESC NULLS LAST);
