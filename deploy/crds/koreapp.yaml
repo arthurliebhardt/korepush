@@ -46,21 +46,12 @@ spec:
               x-kubernetes-validations:
                 - rule: "self.source != 'image' || has(self.image)"
                   message: "spec.image is required when source is 'image'"
-                - rule: "self.source != 'git' || has(self.git)"
-                  message: "spec.git is required when source is 'git'"
               properties:
                 source: { type: string, enum: [image, git], default: image }
                 image: { type: string, maxLength: 512 }
-                git:
-                  type: object
-                  required: [repoUrl]
-                  properties:
-                    repoUrl: { type: string, pattern: '^https://' }
-                    ref: { type: string, default: main }
-                    rootDir: { type: string }
-                    installCmd: { type: string }
-                    buildCmd: { type: string }
-                    startCmd: { type: string }
+                # Git build config (repo/ref/commands) lives on the Postgres app
+                # row + the build Job, not the CR — the operator only acts on
+                # spec.image, which the build pipeline PATCHes in when it lands.
                 port: { type: integer, default: 3000, minimum: 1, maximum: 65535 }
                 replicas: { type: integer, default: 1, minimum: 0, maximum: 50 }
                 env:

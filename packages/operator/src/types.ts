@@ -7,14 +7,6 @@ export type EnvVarSpec = {
 export type KoreAppSpec = {
   source: "image" | "git";
   image?: string;
-  git?: {
-    repoUrl: string;
-    ref?: string;
-    rootDir?: string;
-    installCmd?: string;
-    buildCmd?: string;
-    startCmd?: string;
-  };
   port: number;
   replicas?: number;
   env?: EnvVarSpec[];

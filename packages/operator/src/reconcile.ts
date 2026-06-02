@@ -13,7 +13,8 @@ import {
   reconcileHTTPRoute,
   deleteHTTPRoute,
 } from "@korepush/k8s/routing";
-import { GROUP, VERSION, PLURAL, type KoreApp, type KoreAppStatus } from "./types";
+import { GROUP, VERSION, PLURAL, type KoreApp } from "./types";
+import { patchCRStatus } from "./status";
 
 // Finalizer so we can clean cross-namespace resources (kube-system certs +
 // shared-Gateway listener refs + the app's env Secret) BEFORE the CR is GC'd —
@@ -79,7 +80,12 @@ export async function reconcile(namespace: string, name: string): Promise<void> 
   });
 
   if (!spec.image) {
-    await setStatus(app, { phase: "Pending" }, "NoImage", "Waiting for an image (build pending)");
+    await patchCRStatus(
+      { plural: PLURAL, meta: app.metadata, logPrefix: "[status]" },
+      { phase: "Pending" },
+      "NoImage",
+      "Waiting for an image (build pending)",
+    );
     return;
   }
 
@@ -218,8 +224,8 @@ export async function reconcile(namespace: string, name: string): Promise<void> 
   // and any HPA read) — not the desired count (that's spec.replicas).
   const observed = liveDep?.status?.replicas ?? 0;
   const phase = replicas === 0 ? "Stopped" : ready >= replicas ? "Running" : "Progressing";
-  await setStatus(
-    app,
+  await patchCRStatus(
+    { plural: PLURAL, meta: app.metadata, logPrefix: "[status]" },
     {
       phase,
       currentImage: spec.image,
@@ -330,40 +336,3 @@ async function setFinalizers(namespace: string, name: string, finalizers: string
     .catch((e: unknown) => console.error("[finalizer]", name, e));
 }
 
-async function setStatus(
-  app: KoreApp,
-  partial: Partial<KoreAppStatus>,
-  reason: string,
-  message: string,
-): Promise<void> {
-  const { custom } = k8sClients();
-  const status: KoreAppStatus = {
-    ...partial,
-    observedGeneration: app.metadata.generation,
-    conditions: [
-      {
-        type: "Ready",
-        status: partial.phase === "Running" ? "True" : "False",
-        observedGeneration: app.metadata.generation,
-        lastTransitionTime: new Date().toISOString(),
-        reason,
-        message,
-      },
-    ],
-  };
-  // Merge-patch the status subresource (no resourceVersion → no 409 with the
-  // finalizer patch / concurrent spec writes).
-  await custom
-    .patchNamespacedCustomObjectStatus(
-      {
-        group: GROUP,
-        version: VERSION,
-        namespace: app.metadata.namespace,
-        plural: PLURAL,
-        name: app.metadata.name,
-        body: { status },
-      },
-      mergePatch,
-    )
-    .catch((e: unknown) => console.error("[status]", app.metadata.name, e));
-}

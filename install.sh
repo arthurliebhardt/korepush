@@ -79,9 +79,14 @@ configs:
 EOF
 
 # 3. Install k3s (bundles containerd, Traefik ingress, kubectl, local-path storage).
+#    Pin a known-good version (overridable via KOREPUSH_K3S_VERSION) so installs
+#    are reproducible; given a version, the k3s installer verifies the binary's
+#    sha256 against its GitHub release.
+K3S_VERSION="${KOREPUSH_K3S_VERSION:-v1.35.5+k3s1}"
 if ! command -v k3s >/dev/null 2>&1; then
-  log "Installing k3s…"
-  curl -sfL https://get.k3s.io | INSTALL_K3S_EXEC="--write-kubeconfig-mode 644" sh -
+  log "Installing k3s ${K3S_VERSION}…"
+  curl -sfL https://get.k3s.io |
+    INSTALL_K3S_VERSION="$K3S_VERSION" INSTALL_K3S_EXEC="--write-kubeconfig-mode 644" sh -
 else
   log "k3s already installed; restarting to apply registry config…"
   systemctl restart k3s
