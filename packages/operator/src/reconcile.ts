@@ -211,9 +211,12 @@ export async function reconcile(namespace: string, name: string): Promise<void> 
   await reconcileDomains(namespace, name, spec.domains ?? [], labels, owner);
 
   // Status (phase from readyReplicas + per-domain cert status).
-  const ready =
-    (await apps.readNamespacedDeployment({ name, namespace }).catch(() => null))?.status
-      ?.readyReplicas ?? 0;
+  const liveDep = await apps.readNamespacedDeployment({ name, namespace }).catch(() => null);
+  const ready = liveDep?.status?.readyReplicas ?? 0;
+  // The scale subresource's statusReplicasPath is .status.replicas, which by
+  // contract is the OBSERVED replica count (what `kubectl scale --current-replicas`
+  // and any HPA read) — not the desired count (that's spec.replicas).
+  const observed = liveDep?.status?.replicas ?? 0;
   const phase = replicas === 0 ? "Stopped" : ready >= replicas ? "Running" : "Progressing";
   await setStatus(
     app,
@@ -221,7 +224,7 @@ export async function reconcile(namespace: string, name: string): Promise<void> 
       phase,
       currentImage: spec.image,
       url: `${tlsEnabled ? "https" : "http"}://${host}`,
-      replicas,
+      replicas: observed,
       readyReplicas: ready,
       selector: `app=${name}`,
       domains: await domainStatuses(name, spec.domains ?? []),

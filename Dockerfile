@@ -22,7 +22,9 @@ FROM base AS runner
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
-RUN addgroup -S korepush && adduser -S korepush -G korepush
+# Fixed uid/gid so the manifest's securityContext.runAsUser can pin it (a named
+# USER alone can't be verified by runAsNonRoot at admission).
+RUN addgroup -S -g 10001 korepush && adduser -S -u 10001 -G korepush korepush
 
 # Standalone server bundle (includes traced node_modules + compiled workspace pkgs).
 COPY --from=build /app/apps/web/.next/standalone ./

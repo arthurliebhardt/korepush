@@ -2,8 +2,8 @@ import { and, eq } from "drizzle-orm";
 import { db, schema } from "@korepush/db";
 import { k8sClients } from "./client";
 import { getSpaceBySlug, listSpaces } from "./spaces";
-import { slugify } from "./util";
-import { createKoreDatabase, deleteKoreDatabase } from "./koreapp";
+import { slugify, isUniqueViolation } from "./util";
+import { createKoreDatabase, deleteKoreDatabase, patchKoreApp } from "./koreapp";
 
 // CloudNativePG provisions a Postgres Cluster per database; it creates a
 // `<cluster>-app` Secret (key `uri` = connection string) and a `<cluster>-rw`
@@ -49,7 +49,13 @@ export async function createDatabase(input: { spaceSlug: string; name: string })
       status: "provisioning",
       connectionSecret: `${name}-app`,
     })
-    .returning();
+    .returning()
+    .catch((err) => {
+      if (isUniqueViolation(err)) {
+        throw new Error(`A database named "${input.name}" already exists in this space.`);
+      }
+      throw err;
+    });
 
   try {
     // The operator reconciles the KoreDatabase into a CNPG Cluster.
@@ -81,18 +87,24 @@ export async function getDatabaseInfo(
 
   let ready = false;
   let phase = "provisioning";
-  try {
-    const cr = (await custom.getNamespacedCustomObject({
+  // The CNPG Cluster CR is created asynchronously by the operator, so a 404 just
+  // means "not provisioned yet" — report provisioning, NOT failed. A genuine
+  // (non-404) error propagates to the caller, which falls back to provisioning.
+  const cr = (await custom
+    .getNamespacedCustomObject({
       group: CNPG_GROUP,
       version: CNPG_VERSION,
       namespace,
       plural: "clusters",
       name,
-    })) as { status?: { phase?: string; readyInstances?: number } };
+    })
+    .catch((e: unknown) => {
+      if ((e as { code?: number })?.code === 404) return null;
+      throw e;
+    })) as { status?: { phase?: string; readyInstances?: number } } | null;
+  if (cr) {
     phase = cr.status?.phase ?? "provisioning";
     ready = (cr.status?.readyInstances ?? 0) >= 1;
-  } catch {
-    return { phase: "failed", ready: false, connectionUri: null, host: null };
   }
 
   let connectionUri: string | null = null;
@@ -114,6 +126,28 @@ export async function deleteDatabase(spaceSlug: string, slug: string) {
   if (!space) return;
   const row = await getDatabase(space.id, slug);
   if (!row) return;
+
+  // Detach any apps using this DB BEFORE removing its CNPG secret. The FK
+  // (onDelete: set null) only updates Postgres — it never touches the cluster,
+  // so without this the operator keeps injecting a secretKeyRef to the deleted
+  // `db-<slug>-app` Secret and every pod crashes with CreateContainerConfigError.
+  const attached = await db
+    .select()
+    .from(schema.apps)
+    .where(
+      and(eq(schema.apps.spaceId, space.id), eq(schema.apps.attachedDbId, row.id)),
+    );
+  for (const app of attached) {
+    await db
+      .update(schema.apps)
+      .set({ attachedDbId: null, updatedAt: new Date() })
+      .where(eq(schema.apps.id, app.id));
+    await patchKoreApp(space.namespace, app.slug, {
+      spec: { database: null },
+      restart: true,
+    }).catch((err) => console.error("[db-detach]", app.slug, err));
+  }
+
   // Delete the KoreDatabase CR; the operator's ownerReference GC removes the
   // CNPG Cluster. (The LimitRange is now owned by the KoreSpace.)
   await deleteKoreDatabase(space.namespace, slug);

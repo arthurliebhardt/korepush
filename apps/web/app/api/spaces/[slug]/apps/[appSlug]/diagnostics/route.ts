@@ -1,5 +1,5 @@
-import { getSession } from "@/lib/session";
-import { getSpaceBySlug, getAppDiagnostics } from "@korepush/k8s";
+import { authorizeSpaceRequest } from "@/lib/session";
+import { getAppDiagnostics } from "@korepush/k8s";
 
 export const dynamic = "force-dynamic";
 
@@ -10,25 +10,28 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ slug: string; appSlug: string }> },
 ) {
-  if (!(await getSession())) {
-    return new Response("Unauthorized", { status: 401 });
-  }
   const { slug, appSlug } = await params;
-  const space = await getSpaceBySlug(slug);
-  if (!space) return new Response("Not found", { status: 404 });
+  const auth = await authorizeSpaceRequest(slug);
+  if (auth instanceof Response) return auth;
+  const { space } = auth;
 
   const encoder = new TextEncoder();
   let timer: ReturnType<typeof setInterval> | null = null;
 
   const stream = new ReadableStream({
     async start(controller) {
+      const send = (data: string) => {
+        try {
+          controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+        } catch {
+          if (timer) clearInterval(timer);
+        }
+      };
       async function tick() {
-        const diag = await getAppDiagnostics(space!.namespace, appSlug).catch(
+        const diag = await getAppDiagnostics(space.namespace, appSlug).catch(
           () => null,
         );
-        controller.enqueue(
-          encoder.encode(`data: ${JSON.stringify(diag ?? { ok: false })}\n\n`),
-        );
+        send(JSON.stringify(diag ?? { ok: false }));
       }
       await tick();
       timer = setInterval(tick, 5000);

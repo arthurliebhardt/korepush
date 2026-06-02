@@ -107,12 +107,6 @@ spec:
                   properties:
                     name: { type: string }
                     envVar: { type: string, default: DATABASE_URL }
-                canary:
-                  type: object
-                  required: [image, weight]
-                  properties:
-                    image: { type: string, maxLength: 512 }
-                    weight: { type: integer, minimum: 0, maximum: 100 }
             status:
               type: object
               properties:

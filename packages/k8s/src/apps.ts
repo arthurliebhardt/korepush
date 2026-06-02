@@ -2,7 +2,7 @@ import { and, desc, eq, or } from "drizzle-orm";
 import { db, schema } from "@korepush/db";
 import { k8sClients, managedLabels } from "./client";
 import { getSpaceBySlug, listSpaces } from "./spaces";
-import { slugify } from "./util";
+import { slugify, isUniqueViolation } from "./util";
 import {
   createBuildJob,
   getBuildJobPhase,
@@ -76,7 +76,13 @@ export async function createApp(input: CreateAppInput) {
       env: input.env ?? {},
       status: "provisioning",
     })
-    .returning();
+    .returning()
+    .catch((err) => {
+      if (isUniqueViolation(err)) {
+        throw new Error(`An app named "${input.name}" already exists in this space.`);
+      }
+      throw err;
+    });
 
   const [deployment] = await db
     .insert(schema.deployments)
@@ -141,11 +147,7 @@ export async function addAppDomain(
       useStaging,
     });
   } catch (err) {
-    // postgres-js puts the SQLSTATE on .code; drizzle wraps it under .cause.
-    const e = err as { code?: string; cause?: { code?: string } };
-    if (e?.code === "23505" || e?.cause?.code === "23505") {
-      throw new Error("That domain is already in use.");
-    }
+    if (isUniqueViolation(err)) throw new Error("That domain is already in use.");
     throw err;
   }
   // The domain stays out of the CR spec until it passes the DNS precheck (see
@@ -175,13 +177,15 @@ export async function removeAppDomain(
   if (!d) return;
 
   await db.delete(schema.appDomains).where(eq(schema.appDomains.id, d.id));
-  // Tear down the removed host's cert/Gateway ref (the operator only adds
-  // certs for hosts still in spec.domains; it can't know one was removed).
-  await removeHttpsCert(d.secretName);
+  // Remove the host from the CR spec FIRST, so a reconcile racing in this gap
+  // can't re-provision its cert; THEN tear down the cert/Gateway ref (the
+  // operator only adds certs for hosts still in spec.domains — it can't know
+  // one was removed, so the control plane must clean it up).
   const remaining = (await listAppDomains(app.id))
     .filter((r) => r.status !== "pending")
     .map((r) => ({ host: r.host, staging: r.useStaging }));
   await patchKoreApp(space.namespace, app.slug, { spec: { domains: remaining } });
+  await removeHttpsCert(d.secretName);
 }
 
 export async function listAppDomains(appId: string) {
@@ -307,7 +311,13 @@ export async function createGitApp(input: CreateGitAppInput) {
       startCmd: input.startCmd || null,
       status: "pending",
     })
-    .returning();
+    .returning()
+    .catch((err) => {
+      if (isUniqueViolation(err)) {
+        throw new Error(`An app named "${input.name}" already exists in this space.`);
+      }
+      throw err;
+    });
   // Create the CR now (no image yet → operator reports Pending); the build
   // pipeline PATCHes spec.image when it succeeds (finalizeBuild).
   await createKoreApp(space.namespace, slug, buildKoreAppSpec(app));
@@ -445,6 +455,11 @@ export async function triggerGitBuild(
   return { deploymentId: deployment.id, jobName, image };
 }
 
+// A build Job is TTL-GC'd 1h after it finishes (build.ts ttlSecondsAfterFinished).
+// Once it's gone, getBuildJobPhase returns "unknown" forever; treat a build older
+// than this (Job missing) as failed so it can't sit in "building" indefinitely.
+const BUILD_STALE_MS = 2 * 60 * 60 * 1000;
+
 /**
  * Idempotently advance a build: if its Job succeeded, deploy the built image;
  * if it failed, mark failed. Safe to call repeatedly (e.g. from the log stream
@@ -486,7 +501,12 @@ export async function finalizeBuild(deploymentId: string): Promise<string> {
       .where(eq(schema.deployments.id, dep.id));
     return "succeeded";
   }
-  if (phase === "failed") {
+  if (
+    phase === "failed" ||
+    // Job GC'd ("unknown") and the build is too old to ever be observed again.
+    (phase === "unknown" &&
+      Date.now() - new Date(dep.createdAt).getTime() > BUILD_STALE_MS)
+  ) {
     await db
       .update(schema.apps)
       .set({ status: "failed", updatedAt: new Date() })
@@ -516,6 +536,9 @@ export async function finalizePendingBuilds() {
         eq(schema.deployments.status, "deploying"),
       ),
     )
+    // Oldest first so stuck rows are reaped (and freed from the window) before
+    // newer ones, rather than an arbitrary 50 that could starve real builds.
+    .orderBy(schema.deployments.createdAt)
     .limit(50);
   for (const d of pending) {
     await finalizeBuild(d.id).catch((err) =>

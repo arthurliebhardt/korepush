@@ -1,7 +1,7 @@
 import { PassThrough } from "node:stream";
-import { getSession } from "@/lib/session";
+import { authorizeSpaceRequest } from "@/lib/session";
+import { sse } from "@/lib/sse";
 import {
-  getSpaceBySlug,
   getApp,
   getBuildPodName,
   buildJobName,
@@ -13,9 +13,6 @@ import {
 
 export const dynamic = "force-dynamic";
 
-function sse(event: string, data: string) {
-  return `event: ${event}\ndata: ${data}\n\n`;
-}
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function GET(
@@ -26,12 +23,10 @@ export async function GET(
     params: Promise<{ slug: string; appSlug: string; deploymentId: string }>;
   },
 ) {
-  if (!(await getSession())) {
-    return new Response("Unauthorized", { status: 401 });
-  }
   const { slug, appSlug, deploymentId } = await params;
-  const space = await getSpaceBySlug(slug);
-  if (!space) return new Response("Not found", { status: 404 });
+  const auth = await authorizeSpaceRequest(slug);
+  if (auth instanceof Response) return auth;
+  const { space } = auth;
   const app = await getApp(space.id, appSlug);
   if (!app) return new Response("Not found", { status: 404 });
 

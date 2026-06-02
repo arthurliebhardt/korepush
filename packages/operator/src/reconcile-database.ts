@@ -39,6 +39,10 @@ export async function reconcileDatabase(namespace: string, name: string): Promis
   };
   const instances = kdb.spec.instances ?? 1;
   const storage = kdb.spec.storage ?? "5Gi";
+  // Pin the Postgres major version from spec.version (CRD default 16) onto the
+  // CNPG operand image; otherwise CNPG silently uses its own bundled default.
+  const version = kdb.spec.version ?? 16;
+  const imageName = `ghcr.io/cloudnative-pg/postgresql:${version}`;
 
   // CNPG Cluster (create-if-missing; adopt an existing one by stamping the
   // ownerRef). We don't mutate a live cluster's storage/instances here —
@@ -58,6 +62,7 @@ export async function reconcileDatabase(namespace: string, name: string): Promis
         metadata: { name: cluster, namespace, labels, ownerReferences: [owner] },
         spec: {
           instances,
+          imageName,
           storage: { size: storage },
           resources: {
             requests: { cpu: "100m", memory: "256Mi" },

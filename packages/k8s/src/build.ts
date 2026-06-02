@@ -24,9 +24,17 @@ export function buildJobName(appSlug: string, tag: string) {
 
 const BUILD_SCRIPT = `set -e
 echo "── cloning $REPO_URL ($GIT_REF) ──"
-# Private repos: inject a short-lived installation token (GIT_TOKEN).
+# Private repos: inject a short-lived installation token (GIT_TOKEN). Only ever
+# attach it to a github.com URL — never trust REPO_URL's host with the token,
+# even though the control plane already validates it (defense in depth).
 if [ -n "$GIT_TOKEN" ]; then
-  CLONE="https://x-access-token:$GIT_TOKEN@\${REPO_URL#https://}"
+  case "$REPO_URL" in
+    https://github.com/*)
+      CLONE="https://x-access-token:$GIT_TOKEN@github.com/\${REPO_URL#https://github.com/}" ;;
+    *)
+      echo "refusing to attach clone token to non-github.com URL: $REPO_URL" >&2
+      exit 1 ;;
+  esac
 else
   CLONE="$REPO_URL"
 fi

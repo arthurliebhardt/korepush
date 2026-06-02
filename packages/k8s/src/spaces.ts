@@ -9,6 +9,15 @@ export async function listSpaces() {
   return db.select().from(schema.spaces).orderBy(schema.spaces.createdAt);
 }
 
+/** Spaces owned by one user (the dashboard scopes to this unless admin). */
+export async function listSpacesForUser(ownerId: string) {
+  return db
+    .select()
+    .from(schema.spaces)
+    .where(eq(schema.spaces.ownerId, ownerId))
+    .orderBy(schema.spaces.createdAt);
+}
+
 export async function getSpaceBySlug(slug: string) {
   const [space] = await db
     .select()
