@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { StatusBadge } from "@/components/status-badge";
+import { LogLine } from "@/components/log-line";
 
 type StatusMsg = {
   phase: string;
@@ -86,11 +87,7 @@ export function AppLive({
           {logs.length === 0 ? (
             <span className="text-muted">Waiting for log output…</span>
           ) : (
-            logs.map((line, i) => (
-              <div key={i} className="whitespace-pre-wrap break-all">
-                {line}
-              </div>
-            ))
+            logs.map((line, i) => <LogLine key={i} line={line} />)
           )}
         </div>
       </div>
