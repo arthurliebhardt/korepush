@@ -9,6 +9,7 @@ export function AuthForm({ mode }: { mode: "setup" | "login" }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -17,6 +18,11 @@ export function AuthForm({ mode }: { mode: "setup" | "login" }) {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+    // Setup creates the one admin account — confirm the password to catch typos.
+    if (isSetup && password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
     setLoading(true);
 
     const { error } = isSetup
@@ -91,6 +97,24 @@ export function AuthForm({ mode }: { mode: "setup" | "login" }) {
           autoComplete={isSetup ? "new-password" : "current-password"}
         />
       </div>
+
+      {isSetup && (
+        <div>
+          <label className="label" htmlFor="confirmPassword">
+            Confirm password
+          </label>
+          <input
+            id="confirmPassword"
+            type="password"
+            className="input"
+            value={confirmPassword}
+            onChange={(e) => setConfirmPassword(e.target.value)}
+            required
+            minLength={8}
+            autoComplete="new-password"
+          />
+        </div>
+      )}
 
       {error && <p className="text-sm text-danger">{error}</p>}
 
