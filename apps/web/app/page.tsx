@@ -25,7 +25,9 @@ export default async function DashboardPage() {
     <div className="flex flex-1 flex-col">
       <header className="flex items-center justify-between border-b border-border px-6 py-4">
         <div className="flex items-center gap-3">
-          <span className="text-lg font-bold tracking-tight">korepush</span>
+          <Link href="/" className="text-lg font-bold tracking-tight">
+            korepush
+          </Link>
           <span
             className={`inline-flex items-center gap-1.5 text-xs ${
               clusterOk ? "text-success" : "text-danger"
@@ -68,7 +70,7 @@ export default async function DashboardPage() {
                 <li key={space.id}>
                   <Link
                     href={`/spaces/${space.slug}`}
-                    className="card block transition-colors hover:border-zinc-500"
+                    className="card card-interactive block"
                   >
                     <div className="flex items-center justify-between">
                       <span className="font-medium">{space.name}</span>

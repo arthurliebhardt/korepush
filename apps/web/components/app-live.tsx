@@ -24,6 +24,12 @@ export function AppLive({
   const [status, setStatus] = useState<StatusMsg>({ phase: initialStatus });
   const [logs, setLogs] = useState<string[]>([]);
   const logRef = useRef<HTMLDivElement>(null);
+  const pinnedRef = useRef(true);
+
+  const onScroll = () => {
+    const el = logRef.current;
+    if (el) pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+  };
 
   useEffect(() => {
     const es = new EventSource(`${base}/status`);
@@ -47,7 +53,11 @@ export function AppLive({
   }, [base]);
 
   useEffect(() => {
-    logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
+    // Only auto-tail when the user is pinned to the bottom — don't yank them
+    // back down while they're scrolled up reading earlier output.
+    if (pinnedRef.current) {
+      logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
+    }
   }, [logs]);
 
   return (
@@ -82,7 +92,8 @@ export function AppLive({
         </div>
         <div
           ref={logRef}
-          className="h-96 overflow-auto rounded-xl border border-border bg-black p-4 font-mono text-xs leading-relaxed text-zinc-300"
+          onScroll={onScroll}
+          className="h-96 overflow-auto rounded-lg border border-border bg-background p-4 font-mono text-xs leading-relaxed text-muted-2"
         >
           {logs.length === 0 ? (
             <span className="text-muted">Waiting for log output…</span>

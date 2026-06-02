@@ -91,14 +91,20 @@ export default async function SpacePage({
         </div>
       </div>
 
-      {usage?.ok && (
-        <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
-          <UsageTile label="CPU" value={fmtCores(usage.cpuCores)} />
-          <UsageTile label="Memory" value={fmtBytes(usage.memoryBytes)} />
-          <UsageTile label="Pods" value={String(usage.pods)} />
-          <UsageTile label="Restarts" value={String(usage.restarts)} />
-        </div>
-      )}
+      {/* Always rendered (placeholders when metrics aren't ready) so the page
+          doesn't shift when Prometheus data arrives. */}
+      <div className="mb-8 grid grid-cols-2 gap-4 sm:grid-cols-4">
+        <UsageTile label="CPU" value={usage?.ok ? fmtCores(usage.cpuCores) : "—"} />
+        <UsageTile
+          label="Memory"
+          value={usage?.ok ? fmtBytes(usage.memoryBytes) : "—"}
+        />
+        <UsageTile label="Pods" value={usage?.ok ? String(usage.pods) : "—"} />
+        <UsageTile
+          label="Restarts"
+          value={usage?.ok ? String(usage.restarts) : "—"}
+        />
+      </div>
 
       <div className="mb-4 flex items-center justify-between">
         <h2 className="text-sm font-medium text-muted">Apps</h2>

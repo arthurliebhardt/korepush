@@ -8,16 +8,16 @@ import { memo, useState } from "react";
 // Anything that isn't a JSON object falls back to the raw text.
 
 const LEVEL_COLOR: Record<string, string> = {
-  error: "text-danger",
-  err: "text-danger",
-  fatal: "text-danger",
-  critical: "text-danger",
-  panic: "text-danger",
-  warn: "text-amber-400",
-  warning: "text-amber-400",
-  info: "text-sky-400",
-  debug: "text-zinc-500",
-  trace: "text-zinc-500",
+  error: "text-danger-fg",
+  err: "text-danger-fg",
+  fatal: "text-danger-fg",
+  critical: "text-danger-fg",
+  panic: "text-danger-fg",
+  warn: "text-warn-fg",
+  warning: "text-warn-fg",
+  info: "text-info-fg",
+  debug: "text-fg-subtle",
+  trace: "text-fg-subtle",
 };
 
 type ParsedLog = {
@@ -78,16 +78,16 @@ export const LogLine = memo(function LogLine({ line }: { line: string }) {
     return <div className="whitespace-pre-wrap break-all">{line}</div>;
   }
 
-  const levelColor = (p.level && LEVEL_COLOR[p.level]) || "text-zinc-400";
+  const levelColor = (p.level && LEVEL_COLOR[p.level]) || "text-muted";
   const isHttp = !!(p.method || p.path || p.status != null);
   const statusColor =
     p.status == null
       ? ""
       : p.status >= 500
-        ? "text-danger"
+        ? "text-danger-fg"
         : p.status >= 400
-          ? "text-amber-400"
-          : "text-success";
+          ? "text-warn-fg"
+          : "text-success-fg";
 
   return (
     <div>

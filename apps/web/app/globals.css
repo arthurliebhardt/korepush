@@ -1,30 +1,76 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0a0a0a;
-  --surface: #111113;
-  --surface-2: #18181b;
+  color-scheme: dark;
+
+  /* Background layers — lighter as elements come forward */
+  --background: #0a0a0b;
+  --bg-subtle: #0f1011; /* topbar/sidebar, recessed input fill */
+  --surface: #151618; /* cards, panels */
+  --surface-2: #1b1d20; /* hover of surface, nested rows */
+  --surface-3: #212327; /* popovers, dropdowns, modals, ⌘K */
+
+  /* Borders — their own layer */
+  --border-subtle: #1a1c1f;
   --border: #27272a;
-  --foreground: #ededed;
+  --border-strong: #36383d;
+
+  /* Foreground — opacity-stepped off near-white, never pure #fff */
+  --foreground: #ededef;
   --muted: #a1a1aa;
+  --muted-2: #8a8a93;
+  --fg-subtle: #71717a;
+  --fg-faint: #52525b;
+
+  /* Accent — kept white (primary CTA). Indigo reserved for focus ring + active nav. */
   --accent: #ffffff;
+  --accent-hover: #e4e4e7;
   --accent-fg: #0a0a0a;
+  --ring: #5e6ad2;
+
+  /* Semantic — status only. -fg is the lighter text tone on a /15 fill. */
   --success: #34d399;
+  --success-fg: #4ade80;
   --warn: #fbbf24;
+  --warn-fg: #fcd34d;
   --danger: #f87171;
+  --danger-fg: #fb7185;
+  --info: #38bdf8;
+  --info-fg: #7dd3fc;
+
+  /* Elevation — flat-on-page = border only; overlays get shadow + lit edge */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 16px 48px rgba(0, 0, 0, 0.5);
+  --edge-hi: inset 0 1px 0 rgba(255, 255, 255, 0.04);
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-bg-subtle: var(--bg-subtle);
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border-subtle: var(--border-subtle);
   --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
+  --color-muted-2: var(--muted-2);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-fg-faint: var(--fg-faint);
   --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-ring: var(--ring);
   --color-success: var(--success);
+  --color-success-fg: var(--success-fg);
   --color-warn: var(--warn);
+  --color-warn-fg: var(--warn-fg);
   --color-danger: var(--danger);
+  --color-danger-fg: var(--danger-fg);
+  --color-info: var(--info);
+  --color-info-fg: var(--info-fg);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
@@ -38,22 +84,97 @@ body {
 @layer components {
   .btn,
   .btn-primary,
-  .btn-ghost {
-    @apply inline-flex items-center justify-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors disabled:opacity-50 disabled:pointer-events-none;
+  .btn-ghost,
+  .btn-danger {
+    @apply inline-flex select-none items-center justify-center gap-2 rounded-md px-3.5 py-2
+      text-sm font-medium transition duration-150 ease-out
+      active:scale-[0.98]
+      focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring
+      focus-visible:ring-offset-2 focus-visible:ring-offset-background
+      disabled:pointer-events-none disabled:opacity-50 disabled:active:scale-100;
   }
   .btn-primary {
-    @apply bg-white text-black hover:bg-zinc-200;
+    @apply bg-accent text-accent-fg hover:bg-accent-hover;
   }
   .btn-ghost {
-    @apply border border-border bg-transparent text-foreground hover:bg-surface-2;
+    @apply border border-border bg-transparent text-foreground
+      hover:border-border-strong hover:bg-surface-2;
   }
+  .btn-danger {
+    @apply border border-danger/30 bg-danger/15 text-danger-fg hover:bg-danger/25;
+  }
+
   .input {
-    @apply w-full rounded-md border border-border bg-surface-2 px-3 py-2 text-sm text-foreground placeholder:text-muted outline-none focus:border-zinc-500;
+    @apply w-full rounded-md border border-border bg-bg-subtle px-3 py-2 text-sm
+      text-foreground outline-none transition duration-150
+      placeholder:text-fg-subtle focus:border-ring;
   }
+  .input:focus {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--ring) 22%, transparent);
+  }
+
   .card {
-    @apply rounded-xl border border-border bg-surface p-5;
+    @apply rounded-lg border border-border bg-surface p-5;
+    box-shadow: var(--edge-hi);
+  }
+  .card-interactive {
+    @apply transition duration-150 hover:border-border-strong hover:bg-surface-2;
   }
   .label {
-    @apply block text-sm font-medium text-muted mb-1.5;
+    @apply mb-1.5 block text-sm font-medium text-muted;
+  }
+
+  /* New primitives (used by later phases: shell, tabs, overlays, badges) */
+  .panel {
+    @apply rounded-lg border border-border bg-surface;
+  }
+  .surface-overlay {
+    @apply rounded-xl border border-border-strong bg-surface-3;
+    box-shadow: var(--shadow-lg), var(--edge-hi);
+  }
+  .badge {
+    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium;
+  }
+  .tabbar {
+    @apply flex gap-1 border-b border-border;
+  }
+  .tab {
+    @apply -mb-px border-b-2 border-transparent px-3 py-2.5 text-sm text-muted
+      transition-colors hover:text-foreground;
+  }
+  .tab-active {
+    @apply border-foreground text-foreground;
+  }
+}
+
+/* Global polish */
+::selection {
+  background: color-mix(in srgb, var(--ring) 28%, transparent);
+}
+* {
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border: 2px solid var(--background);
+  border-radius: 9999px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
+  .btn:active,
+  .btn-primary:active,
+  .btn-ghost:active,
+  .btn-danger:active {
+    transform: none;
   }
 }
