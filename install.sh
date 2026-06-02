@@ -64,8 +64,8 @@ esac
 
 # 2. Configure containerd to pull from the in-cluster registry. Builds push to
 #    registry.korepush-system.svc.cluster.local:5000 (svc DNS, in-cluster); the
-#    host's containerd can't resolve that, so mirror it to the node-local
-#    NodePort over plain HTTP. k3s reads this only at startup.
+#    host's containerd can't resolve that, so mirror it to a loopback-only
+#    hostPort (127.0.0.1:30000) over plain HTTP. k3s reads this only at startup.
 mkdir -p /etc/rancher/k3s
 cat > /etc/rancher/k3s/registries.yaml <<'EOF'
 mirrors:

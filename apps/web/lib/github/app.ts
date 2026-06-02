@@ -130,14 +130,33 @@ export async function listAllConnectedRepos(): Promise<InstallationRepo[]> {
   return out.sort((a, b) => a.fullName.localeCompare(b.fullName));
 }
 
-function ownerOf(repoUrl: string): string | null {
-  const m = repoUrl.match(/github\.com[/:]([^/]+)\/[^/]+/i);
-  return m ? m[1] : null;
+/**
+ * Parse owner/repo from a GitHub URL, requiring github.com to be the HOST (not
+ * merely a substring anywhere in the string). This anchor is the trust boundary
+ * that stops a crafted URL like `https://evil.com/github.com/org/repo` from
+ * matching an installation — and later receiving its clone token.
+ */
+function parseRepo(repoUrl: string): { owner: string; repo: string } | null {
+  const m = repoUrl
+    .trim()
+    .match(
+      /^(?:https?:\/\/github\.com\/|git@github\.com:)([^/]+)\/([^/]+?)(?:\.git)?\/?$/i,
+    );
+  return m ? { owner: m[1], repo: m[2] } : null;
 }
 
-function parseRepo(repoUrl: string): { owner: string; repo: string } | null {
-  const m = repoUrl.match(/github\.com[/:]([^/]+)\/([^/]+?)(?:\.git)?\/?$/i);
-  return m ? { owner: m[1], repo: m[2] } : null;
+function ownerOf(repoUrl: string): string | null {
+  return parseRepo(repoUrl)?.owner ?? null;
+}
+
+/**
+ * Canonical `https://github.com/<owner>/<repo>` for storage, or null when `raw`
+ * isn't a github.com repo. Callers reject null so the stored repoUrl — which the
+ * build script splices a clone token in front of — is always a github.com URL.
+ */
+export function canonicalRepoUrl(raw: string): string | null {
+  const r = parseRepo(raw);
+  return r ? `https://github.com/${r.owner}/${r.repo}` : null;
 }
 
 /** Octokit scoped to the installation owning `owner`, or null (public repo). */

@@ -7,6 +7,7 @@ import {
   jsonb,
   uuid,
   pgEnum,
+  uniqueIndex,
   type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 
@@ -150,7 +151,12 @@ export const apps = pgTable("apps", {
   dbEnvVar: text("db_env_var").default("DATABASE_URL").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (t) => [
+  // The slug is the app's k8s identity (KoreApp CR name, `<slug>-env` Secret,
+  // routing). Two apps sharing it in one space would collide onto one set of
+  // cluster objects, so enforce uniqueness per space.
+  uniqueIndex("apps_space_slug_unique").on(t.spaceId, t.slug),
+]);
 
 // Custom domains attached to an app (apex or subdomain). `host` is globally
 // UNIQUE — two apps claiming the same host would make Traefik route it
@@ -185,7 +191,11 @@ export const databases = pgTable("databases", {
   connectionSecret: text("connection_secret"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (t) => [
+  // The slug becomes the CNPG cluster name `db-<slug>`; a per-space collision
+  // would silently share one Postgres cluster across two database rows.
+  uniqueIndex("databases_space_slug_unique").on(t.spaceId, t.slug),
+]);
 
 export const deployments = pgTable("deployments", {
   id: uuid("id").primaryKey().defaultRandom(),

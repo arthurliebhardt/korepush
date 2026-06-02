@@ -1,5 +1,12 @@
-import { k8sClients } from "./client";
-import { reconcileHTTPRoute, ensureHttpsCert } from "./routing";
+import { k8sClients, managedLabels } from "./client";
+import {
+  reconcileHTTPRoute,
+  ensureHttpsCert,
+  CM_GROUP,
+  CM_VERSION,
+  GW_GROUP,
+  GW_VERSION,
+} from "./routing";
 
 // The control plane manages its own k8s objects (created by install.sh).
 const NS = "korepush-system";
@@ -12,11 +19,8 @@ const PANEL_TLS_SECRET = "korepush-panel-tls";
 // install and must be flipped to https when a custom domain is added.
 const MONITORING_NS = "korepush-monitoring";
 const GRAFANA_DEPLOYMENT = "grafana";
-const CM_GROUP = "cert-manager.io";
-const CM_VERSION = "v1";
-const GW_GROUP = "gateway.networking.k8s.io";
-const GW_VERSION = "v1";
-const MANAGED = { "app.kubernetes.io/managed-by": "korepush" };
+// CM_*/GW_* group-versions + the managed-by label come from their canonical
+// homes (./routing, ./client) — don't redeclare them here.
 
 const DOMAIN_RE = /^(?!-)[a-z0-9-]+(\.[a-z0-9-]+)+$/i;
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
@@ -77,7 +81,7 @@ export async function setControlPlaneDomain(
     [domain],
     ["web", "https"],
     [{ name: SERVICE, weight: 100 }],
-    MANAGED,
+    managedLabels(),
   );
 
   // 2. Trust the domain's origins, use it as the app base domain, and make

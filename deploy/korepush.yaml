@@ -57,7 +57,7 @@ rules:
     resources: ["clusterissuers", "certificates"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
   # Gateway API: the control plane manages the shared Gateway's listeners and
-  # per-app HTTPRoutes (routing + canary traffic-splitting).
+  # per-app HTTPRoutes (routing).
   - apiGroups: ["gateway.networking.k8s.io"]
     resources: ["gateways", "httproutes", "referencegrants"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
@@ -129,6 +129,14 @@ spec:
               command: ["pg_isready", "-U", "korepush"]
             initialDelaySeconds: 5
             periodSeconds: 5
+          # Single replica → a wedged-but-alive process is never auto-restarted
+          # without a liveness check (readiness alone just pulls it from the Svc).
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "korepush"]
+            initialDelaySeconds: 30
+            periodSeconds: 15
+            failureThreshold: 5
           resources:
             requests: { cpu: "100m", memory: "256Mi" }
             limits: { cpu: "1", memory: "1Gi" }
@@ -184,20 +192,46 @@ spec:
       labels: { app: korepush }
     spec:
       serviceAccountName: korepush
+      # The image runs as a non-root user (uid 10001, see Dockerfile); enforce it
+      # at the pod level so an image override can't silently run as root.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: korepush
           image: __KOREPUSH_IMAGE__
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           envFrom:
             - secretRef:
                 name: korepush-app
           ports:
             - containerPort: 3000
+          # Migrations run in the entrypoint before the server listens, so gate
+          # liveness behind a generous startupProbe (no kill during slow boots).
+          startupProbe:
+            httpGet:
+              path: /login
+              port: 3000
+            periodSeconds: 5
+            failureThreshold: 30
           readinessProbe:
             httpGet:
               path: /login
               port: 3000
             initialDelaySeconds: 10
             periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /login
+              port: 3000
+            periodSeconds: 15
+            failureThreshold: 5
           resources:
             requests: { cpu: "100m", memory: "256Mi" }
             limits: { cpu: "1", memory: "1Gi" }
@@ -235,8 +269,10 @@ spec:
           port: 80
 ---
 # ---- In-cluster image registry (build target) ----
-# Builds push here by the svc-DNS name; containerd pulls the SAME name via a
-# registries.yaml mirror -> http://127.0.0.1:30000 (NodePort), written by install.sh.
+# Builds push here by the svc-DNS name (ClusterIP, in-cluster); containerd pulls
+# the SAME name via a registries.yaml mirror -> http://127.0.0.1:30000, written
+# by install.sh. That bridge is a LOOPBACK-ONLY hostPort (see below) — never a
+# public NodePort — since the registry is unauthenticated plain HTTP.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -267,7 +303,10 @@ spec:
         - name: registry
           image: registry:2
           ports:
-            - { containerPort: 5000, name: http }
+            # Host pull bridge, bound to LOOPBACK only (replaces the old public
+            # NodePort:30000). The host's containerd reaches it at 127.0.0.1:30000
+            # via the registries.yaml mirror; nothing off-box can.
+            - { containerPort: 5000, name: http, hostIP: 127.0.0.1, hostPort: 30000 }
           env:
             - { name: REGISTRY_HTTP_ADDR, value: ":5000" }
             - { name: REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY, value: "/var/lib/registry" }
@@ -298,16 +337,3 @@ spec:
   selector: { app: registry }
   ports:
     - { name: http, port: 5000, targetPort: 5000 }
----
-# NodePort: PULL bridge so the host's containerd reaches the registry at 127.0.0.1:30000.
-apiVersion: v1
-kind: Service
-metadata:
-  name: registry-nodeport
-  namespace: korepush-system
-  labels: { app: registry }
-spec:
-  type: NodePort
-  selector: { app: registry }
-  ports:
-    - { name: http, port: 5000, targetPort: 5000, nodePort: 30000 }

@@ -1,5 +1,5 @@
-import { getSession } from "@/lib/session";
-import { getSpaceBySlug, getEffectiveEnv } from "@korepush/k8s";
+import { authorizeSpaceRequest } from "@/lib/session";
+import { getEffectiveEnv } from "@korepush/k8s";
 
 export const dynamic = "force-dynamic";
 
@@ -10,12 +10,10 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ slug: string; appSlug: string }> },
 ) {
-  if (!(await getSession())) {
-    return new Response("Unauthorized", { status: 401 });
-  }
   const { slug, appSlug } = await params;
-  const space = await getSpaceBySlug(slug);
-  if (!space) return new Response("Not found", { status: 404 });
+  const auth = await authorizeSpaceRequest(slug);
+  if (auth instanceof Response) return auth;
+  const { space } = auth;
 
   const env = await getEffectiveEnv(space.namespace, appSlug).catch(() => ({
     ok: false,

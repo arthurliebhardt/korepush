@@ -95,9 +95,21 @@ spec:
       labels: { app: korepush-operator }
     spec:
       serviceAccountName: korepush-operator
+      # The image runs as the non-root `node` user (uid 1000); enforce non-root
+      # + drop capabilities at the pod/container level (broad RBAC → least priv).
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: operator
           image: __KOREPUSH_OPERATOR_IMAGE__
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
           env:
             # Base domain for derived per-app hostnames (<app>.<space>.<base>);
             # kept in sync with the control plane via the shared secret.

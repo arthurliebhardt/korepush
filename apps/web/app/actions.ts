@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireUser } from "@/lib/session";
+import { requireUser, assertOwnsSpace } from "@/lib/session";
 import {
   createSpace,
   deleteSpace,
@@ -23,7 +23,11 @@ import {
   removeAppDomain,
   refreshAppDomainStatus,
 } from "@korepush/k8s";
-import { mintCloneTokenForRepo, detectPort } from "@/lib/github/app";
+import {
+  mintCloneTokenForRepo,
+  detectPort,
+  canonicalRepoUrl,
+} from "@/lib/github/app";
 import { detectProject } from "@/lib/github/detect";
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -43,7 +47,7 @@ export async function createSpaceAction(name: string): Promise<ActionResult> {
 }
 
 export async function deleteSpaceAction(slug: string): Promise<ActionResult> {
-  await requireUser();
+  await assertOwnsSpace(slug);
   try {
     await deleteSpace(slug);
     revalidatePath("/");
@@ -59,7 +63,7 @@ export async function createAppAction(input: {
   image: string;
   port?: number;
 }): Promise<ActionResult> {
-  await requireUser();
+  await assertOwnsSpace(input.spaceSlug);
   try {
     await createApp(input);
     revalidatePath(`/spaces/${input.spaceSlug}`);
@@ -73,7 +77,7 @@ export async function deleteAppAction(
   spaceSlug: string,
   appSlug: string,
 ): Promise<ActionResult> {
-  await requireUser();
+  await assertOwnsSpace(spaceSlug);
   try {
     await deleteApp(spaceSlug, appSlug);
     revalidatePath(`/spaces/${spaceSlug}`);
@@ -102,8 +106,18 @@ export async function createGitAppAction(input: {
   buildCmd?: string;
   startCmd?: string;
 }): Promise<BuildActionResult> {
-  await requireUser();
+  await assertOwnsSpace(input.spaceSlug);
   try {
+    // Reject anything that isn't a github.com repo, and store the canonical
+    // form — the build script splices a clone token in front of this URL, so it
+    // must never point at an attacker-controlled host.
+    const repoUrl = canonicalRepoUrl(input.repoUrl);
+    if (!repoUrl) {
+      return {
+        ok: false,
+        error: "Enter a valid GitHub repository URL (https://github.com/owner/repo).",
+      };
+    }
     // Validate env up front so we never leave an orphan app on a bad var.
     const split = input.env?.length ? splitEnvVars(input.env) : null;
     if (split && "error" in split) return { ok: false, error: split.error };
@@ -113,14 +127,12 @@ export async function createGitAppAction(input: {
     // $PORT-honoring app conforms regardless.
     const port =
       input.port ??
-      (await detectPort(input.repoUrl, input.gitRef ?? "main").catch(
-        () => null,
-      )) ??
+      (await detectPort(repoUrl, input.gitRef ?? "main").catch(() => null)) ??
       3000;
     const app = await createGitApp({
       spaceSlug: input.spaceSlug,
       name: input.name,
-      repoUrl: input.repoUrl,
+      repoUrl,
       gitRef: input.gitRef,
       port,
       installCmd: input.installCmd,
@@ -130,7 +142,7 @@ export async function createGitAppAction(input: {
     // Persist env (incl. secrets) before the build; the operator injects them
     // once the build patches spec.image onto the CR.
     if (split) await setAppEnv(input.spaceSlug, app.slug, split);
-    const token = await mintCloneTokenForRepo(input.repoUrl).catch(() => null);
+    const token = await mintCloneTokenForRepo(repoUrl).catch(() => null);
     const { deploymentId } = await triggerGitBuild(
       input.spaceSlug,
       app.slug,
@@ -150,7 +162,7 @@ export async function addEnvironmentAction(input: {
   branch: string;
   envName: string;
 }): Promise<BuildActionResult> {
-  await requireUser();
+  await assertOwnsSpace(input.spaceSlug);
   try {
     const app = await addEnvironment(
       input.spaceSlug,
@@ -179,7 +191,7 @@ export async function redeployAction(
   spaceSlug: string,
   appSlug: string,
 ): Promise<BuildActionResult> {
-  await requireUser();
+  await assertOwnsSpace(spaceSlug);
   try {
     const space = await getSpaceBySlug(spaceSlug);
     const app = space ? await getApp(space.id, appSlug) : null;
@@ -203,7 +215,7 @@ export async function createDatabaseAction(
   spaceSlug: string,
   name: string,
 ): Promise<ActionResult> {
-  await requireUser();
+  await assertOwnsSpace(spaceSlug);
   try {
     await createDatabase({ spaceSlug, name });
     revalidatePath(`/spaces/${spaceSlug}`);
@@ -217,7 +229,7 @@ export async function deleteDatabaseAction(
   spaceSlug: string,
   slug: string,
 ): Promise<ActionResult> {
-  await requireUser();
+  await assertOwnsSpace(spaceSlug);
   try {
     await deleteDatabase(spaceSlug, slug);
     revalidatePath(`/spaces/${spaceSlug}`);
@@ -232,7 +244,7 @@ export async function attachDatabaseAction(
   appSlug: string,
   databaseId: string,
 ): Promise<ActionResult> {
-  await requireUser();
+  await assertOwnsSpace(spaceSlug);
   try {
     await attachDatabase(spaceSlug, appSlug, databaseId);
     revalidatePath(`/spaces/${spaceSlug}/apps/${appSlug}`);
@@ -246,7 +258,7 @@ export async function detachDatabaseAction(
   spaceSlug: string,
   appSlug: string,
 ): Promise<ActionResult> {
-  await requireUser();
+  await assertOwnsSpace(spaceSlug);
   try {
     await detachDatabase(spaceSlug, appSlug);
     revalidatePath(`/spaces/${spaceSlug}/apps/${appSlug}`);
@@ -261,7 +273,7 @@ export async function rollbackAction(
   appSlug: string,
   deploymentId: string,
 ): Promise<ActionResult> {
-  await requireUser();
+  await assertOwnsSpace(spaceSlug);
   try {
     await rollbackDeployment(spaceSlug, appSlug, deploymentId);
     revalidatePath(`/spaces/${spaceSlug}/apps/${appSlug}`);
@@ -301,7 +313,7 @@ export async function setAppEnvAction(
   appSlug: string,
   vars: EnvVarInput[],
 ): Promise<ActionResult> {
-  await requireUser();
+  await assertOwnsSpace(spaceSlug);
   const split = splitEnvVars(vars);
   if ("error" in split) return { ok: false, error: split.error };
   try {
@@ -319,7 +331,7 @@ export async function addAppDomainAction(
   host: string,
   useStaging = false,
 ): Promise<ActionResult> {
-  await requireUser();
+  await assertOwnsSpace(spaceSlug);
   try {
     await addAppDomain(spaceSlug, appSlug, host, useStaging);
     revalidatePath(`/spaces/${spaceSlug}/apps/${appSlug}`);
@@ -334,7 +346,7 @@ export async function removeAppDomainAction(
   appSlug: string,
   host: string,
 ): Promise<ActionResult> {
-  await requireUser();
+  await assertOwnsSpace(spaceSlug);
   try {
     await removeAppDomain(spaceSlug, appSlug, host);
     revalidatePath(`/spaces/${spaceSlug}/apps/${appSlug}`);
@@ -355,7 +367,7 @@ export async function refreshAppDomainsAction(
   spaceSlug: string,
   appSlug: string,
 ): Promise<AppDomainView[]> {
-  await requireUser();
+  await assertOwnsSpace(spaceSlug);
   const rows = await refreshAppDomainStatus(spaceSlug, appSlug).catch(() => []);
   return rows.map((d) => ({
     host: d.host,

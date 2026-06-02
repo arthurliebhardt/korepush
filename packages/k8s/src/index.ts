@@ -23,6 +23,7 @@ export type {
 } from "./pods";
 export {
   listSpaces,
+  listSpacesForUser,
   getSpaceBySlug,
   createSpace,
   deleteSpace,

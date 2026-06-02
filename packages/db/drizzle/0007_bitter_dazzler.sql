@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX "apps_space_slug_unique" ON "apps" USING btree ("space_id","slug");--> statement-breakpoint
+CREATE UNIQUE INDEX "databases_space_slug_unique" ON "databases" USING btree ("space_id","slug");

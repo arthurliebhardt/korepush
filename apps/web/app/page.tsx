@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/session";
-import { listSpaces, clusterReachable } from "@korepush/k8s";
+import { listSpaces, listSpacesForUser, clusterReachable } from "@korepush/k8s";
 import { StatusBadge } from "@/components/status-badge";
 import { CreateSpace } from "@/components/create-space";
 import { SignOutButton } from "@/components/sign-out-button";
@@ -9,8 +9,10 @@ export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const session = await requireUser();
+  // Each user sees only their own spaces; an admin sees the whole platform.
+  const isAdmin = (session.user as { role?: string }).role === "admin";
   const [spaces, clusterOk] = await Promise.all([
-    listSpaces(),
+    isAdmin ? listSpaces() : listSpacesForUser(session.user.id),
     clusterReachable(),
   ]);
 

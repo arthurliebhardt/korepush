@@ -1,8 +1,6 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
-import { requireUser } from "@/lib/session";
+import { requireSpacePage } from "@/lib/session";
 import {
-  getSpaceBySlug,
   listApps,
   listDatabases,
   getDatabaseInfo,
@@ -25,17 +23,21 @@ export default async function SpacePage({
 }: {
   params: Promise<{ slug: string }>;
 }) {
-  await requireUser();
   const { slug } = await params;
-  const space = await getSpaceBySlug(slug);
-  if (!space) notFound();
+  const { space } = await requireSpacePage(slug);
 
-  // Badge from the operator's live CR status.phase (the DB status is only a
-  // mutation-time mirror); fall back to it when a CR has no phase yet.
-  const appRows = await listApps(space.id);
-  const phases = await listKoreAppPhases(space.namespace).catch(
-    (): Record<string, string> => ({}),
-  );
+  // All independent of one another given `space` — fetch in parallel (Postgres,
+  // k8s API, Prometheus, GitHub) instead of serially blocking first paint.
+  const [appRows, phases, usage, repoRows, dbRows] = await Promise.all([
+    listApps(space.id),
+    // Badge from the operator's live CR status.phase (the DB status is only a
+    // mutation-time mirror); fall back to it when a CR has no phase yet.
+    listKoreAppPhases(space.namespace).catch((): Record<string, string> => ({})),
+    getSpaceMetrics(space.namespace).catch(() => null),
+    // Connected GitHub repos for the deploy picker (VM can reach GitHub outbound).
+    listAllConnectedRepos().catch(() => []),
+    listDatabases(space.id),
+  ]);
   const apps = appRows.map((a) => ({
     ...a,
     status: phaseToStatus(phases[a.slug]) ?? a.status,
@@ -50,15 +52,12 @@ export default async function SpacePage({
   }
   const projects = [...projectMap.values()];
   const baseDomain = process.env.KOREPUSH_BASE_DOMAIN ?? "localhost";
-  const usage = await getSpaceMetrics(space.namespace).catch(() => null);
-  // Connected GitHub repos for the deploy picker (VM can reach GitHub outbound).
-  const repos = (await listAllConnectedRepos().catch(() => [])).map((r) => ({
+  const repos = repoRows.map((r) => ({
     fullName: r.fullName,
     cloneUrl: r.cloneUrl,
     defaultBranch: r.defaultBranch,
   }));
 
-  const dbRows = await listDatabases(space.id);
   const databases = await Promise.all(
     dbRows.map(async (d) => {
       const info = await getDatabaseInfo(space.namespace, d.slug).catch(() => ({

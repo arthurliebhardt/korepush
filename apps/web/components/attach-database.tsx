@@ -21,6 +21,7 @@ export function AttachDatabase({
 }) {
   const router = useRouter();
   const [selected, setSelected] = useState("");
+  const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const attached = databases.find((d) => d.id === attachedDbId);
 
@@ -29,6 +30,8 @@ export function AttachDatabase({
       <div className="flex items-center gap-2">
         <span className="text-sm font-medium">Database</span>
       </div>
+
+      {error && <p className="text-xs text-danger">{error}</p>}
 
       {attached ? (
         <div className="flex items-center justify-between">
@@ -41,12 +44,17 @@ export function AttachDatabase({
           <button
             className="text-xs text-muted hover:text-danger"
             disabled={pending}
-            onClick={() =>
+            onClick={() => {
+              setError(null);
               startTransition(async () => {
-                await detachDatabaseAction(spaceSlug, appSlug);
+                const res = await detachDatabaseAction(spaceSlug, appSlug);
+                if (!res.ok) {
+                  setError(res.error);
+                  return;
+                }
                 router.refresh();
-              })
-            }
+              });
+            }}
           >
             {pending ? "…" : "Detach"}
           </button>
@@ -74,12 +82,17 @@ export function AttachDatabase({
           <button
             className="btn-primary"
             disabled={pending || !selected}
-            onClick={() =>
+            onClick={() => {
+              setError(null);
               startTransition(async () => {
-                await attachDatabaseAction(spaceSlug, appSlug, selected);
+                const res = await attachDatabaseAction(spaceSlug, appSlug, selected);
+                if (!res.ok) {
+                  setError(res.error);
+                  return;
+                }
                 router.refresh();
-              })
-            }
+              });
+            }}
           >
             {pending ? "Attaching…" : "Attach as DATABASE_URL"}
           </button>

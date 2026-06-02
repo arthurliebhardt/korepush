@@ -21,7 +21,6 @@ export type KoreAppSpec = {
   envFrom?: { secretRef: { name: string } }[];
   domains?: { host: string; staging?: boolean }[];
   database?: { name: string; envVar?: string };
-  canary?: { image: string; weight: number };
 };
 
 export type KoreAppStatus = {

@@ -1,5 +1,5 @@
-import { getSession } from "@/lib/session";
-import { getSpaceBySlug, k8sClients } from "@korepush/k8s";
+import { authorizeSpaceRequest } from "@/lib/session";
+import { k8sClients } from "@korepush/k8s";
 
 export const dynamic = "force-dynamic";
 
@@ -7,12 +7,10 @@ export async function GET(
   _req: Request,
   { params }: { params: Promise<{ slug: string; appSlug: string }> },
 ) {
-  if (!(await getSession())) {
-    return new Response("Unauthorized", { status: 401 });
-  }
   const { slug, appSlug } = await params;
-  const space = await getSpaceBySlug(slug);
-  if (!space) return new Response("Not found", { status: 404 });
+  const auth = await authorizeSpaceRequest(slug);
+  if (auth instanceof Response) return auth;
+  const { space } = auth;
 
   const { apps, core } = k8sClients();
   const encoder = new TextEncoder();
@@ -20,17 +18,26 @@ export async function GET(
 
   const stream = new ReadableStream({
     async start(controller) {
+      // Enqueue can throw once the client has disconnected (the controller is
+      // closed); stop ticking instead of leaking an unhandled rejection.
+      const send = (data: string) => {
+        try {
+          controller.enqueue(encoder.encode(`data: ${data}\n\n`));
+        } catch {
+          if (timer) clearInterval(timer);
+        }
+      };
       async function tick() {
         try {
           const dep = await apps.readNamespacedDeployment({
             name: appSlug,
-            namespace: space!.namespace,
+            namespace: space.namespace,
           });
           const desired = dep.spec?.replicas ?? 0;
           const ready = dep.status?.readyReplicas ?? 0;
 
           const pods = await core.listNamespacedPod({
-            namespace: space!.namespace,
+            namespace: space.namespace,
             labelSelector: `app=${appSlug}`,
           });
           const podSummaries = pods.items.map((p) => ({
@@ -50,15 +57,9 @@ export async function GET(
                 ? "degraded"
                 : "provisioning";
 
-          controller.enqueue(
-            encoder.encode(
-              `data: ${JSON.stringify({ phase, ready, desired, pods: podSummaries })}\n\n`,
-            ),
-          );
+          send(JSON.stringify({ phase, ready, desired, pods: podSummaries }));
         } catch {
-          controller.enqueue(
-            encoder.encode(`data: ${JSON.stringify({ phase: "failed" })}\n\n`),
-          );
+          send(JSON.stringify({ phase: "failed" }));
         }
       }
 

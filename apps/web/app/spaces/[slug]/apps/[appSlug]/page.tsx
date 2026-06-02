@@ -1,8 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireUser } from "@/lib/session";
+import { requireSpacePage } from "@/lib/session";
 import {
-  getSpaceBySlug,
   getApp,
   latestBuildingDeployment,
   finalizeBuild,
@@ -36,17 +35,15 @@ export default async function AppPage({
 }: {
   params: Promise<{ slug: string; appSlug: string }>;
 }) {
-  await requireUser();
   const { slug, appSlug } = await params;
-  const space = await getSpaceBySlug(slug);
-  if (!space) notFound();
+  const { space } = await requireSpacePage(slug);
   let app = await getApp(space.id, appSlug);
   if (!app) notFound();
 
   const isGit = app.source === "git";
   // Finalize any in-flight build whose Job has finished (idempotent): deploys
   // the built image, so loading/refreshing this page advances the deploy even
-  // if the live log stream dropped.
+  // if the live log stream dropped. Sequential — it refreshes `app`.
   if (isGit) {
     const inflight = await latestBuildingDeployment(app.id);
     if (inflight) {
@@ -54,39 +51,49 @@ export default async function AppPage({
       app = (await getApp(space.id, appSlug)) ?? app;
     }
   }
-  // Show the build console only while a build is in flight; otherwise runtime.
-  const building = isGit ? await latestBuildingDeployment(app.id) : null;
+
+  const baseDomain = process.env.KOREPUSH_BASE_DOMAIN ?? "localhost";
+  const autoHost = `${app.slug}.${space.slug}.${baseDomain}`;
+
+  // Everything below is independent given `space`+`app`; fetch in parallel
+  // (k8s API / DB / Prometheus) instead of serially blocking first paint.
+  const [building, initialPhase, databaseRows, deployments, effectiveEnv, domainRows, nodeIp] =
+    await Promise.all([
+      // Show the build console only while a build is in flight; otherwise runtime.
+      isGit ? latestBuildingDeployment(app.id) : Promise.resolve(null),
+      // Seed the live badge with the operator's CR phase so first paint matches
+      // the SSE stream (which then keeps it live); fall back to the DB mirror.
+      getKoreAppPhase(space.namespace, app.slug).catch(() => null),
+      listDatabases(space.id),
+      listDeployments(app.id),
+      getEffectiveEnv(space.namespace, app.slug).catch(() => ({
+        ok: false,
+        pod: null,
+        env: [],
+      })),
+      listAppDomains(app.id).catch(() => []),
+      getNodeIp().catch(() => null),
+    ]);
+
+  // Sibling environments of this project (git apps only) for the switcher.
+  let envs: Awaited<ReturnType<typeof listProjectEnvs>> = [];
+  let envPhases: Record<string, string> = {};
+  if (isGit) {
+    [envs, envPhases] = await Promise.all([
+      listProjectEnvs(space.id, app.projectId),
+      listKoreAppPhases(space.namespace).catch((): Record<string, string> => ({})),
+    ]);
+  }
+
   const buildId = building?.id ?? null;
-  // Seed the live badge with the operator's CR phase so first paint matches the
-  // SSE stream (which then keeps it live); fall back to the DB mirror.
-  const initialStatus =
-    phaseToStatus(await getKoreAppPhase(space.namespace, app.slug).catch(() => null)) ??
-    app.status;
-
-  const databases = (await listDatabases(space.id)).map((d) => ({
-    id: d.id,
-    name: d.name,
-  }));
-
-  const deployments = await listDeployments(app.id);
-  const effectiveEnv = await getEffectiveEnv(space.namespace, app.slug).catch(
-    () => ({ ok: false, pod: null, env: [] }),
-  );
-  const appDomains = (await listAppDomains(app.id).catch(() => [])).map((d) => ({
+  const initialStatus = phaseToStatus(initialPhase) ?? app.status;
+  const databases = databaseRows.map((d) => ({ id: d.id, name: d.name }));
+  const appDomains = domainRows.map((d) => ({
     host: d.host,
     status: d.status,
     statusMessage: d.statusMessage,
     useStaging: d.useStaging,
   }));
-  const nodeIp = await getNodeIp().catch(() => null);
-  const baseDomain = process.env.KOREPUSH_BASE_DOMAIN ?? "localhost";
-  const autoHost = `${app.slug}.${space.slug}.${baseDomain}`;
-
-  // Sibling environments of this project (git apps only) for the switcher.
-  const envs = isGit ? await listProjectEnvs(space.id, app.projectId) : [];
-  const envPhases = isGit
-    ? await listKoreAppPhases(space.namespace).catch((): Record<string, string> => ({}))
-    : {};
 
   return (
     <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
