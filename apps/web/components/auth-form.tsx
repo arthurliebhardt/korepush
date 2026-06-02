@@ -6,7 +6,6 @@ import { signIn, signUp } from "@/lib/auth-client";
 
 export function AuthForm({ mode }: { mode: "setup" | "login" }) {
   const router = useRouter();
-  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -26,7 +25,8 @@ export function AuthForm({ mode }: { mode: "setup" | "login" }) {
     setLoading(true);
 
     const { error } = isSetup
-      ? await signUp.email({ name, email, password })
+      ? // No name field — the admin's name defaults to the email's local part.
+        await signUp.email({ name: email.split("@")[0] || "admin", email, password })
       : await signIn.email({ email, password });
 
     setLoading(false);
@@ -50,22 +50,6 @@ export function AuthForm({ mode }: { mode: "setup" | "login" }) {
             : "Welcome back."}
         </p>
       </div>
-
-      {isSetup && (
-        <div>
-          <label className="label" htmlFor="name">
-            Name
-          </label>
-          <input
-            id="name"
-            className="input"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            required
-            autoComplete="name"
-          />
-        </div>
-      )}
 
       <div>
         <label className="label" htmlFor="email">
