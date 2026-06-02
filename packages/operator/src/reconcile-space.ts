@@ -1,6 +1,7 @@
 import { setHeaderOptions, PatchStrategy } from "@kubernetes/client-node";
 import { k8sClients, managedLabels } from "@korepush/k8s/client";
-import { GROUP, VERSION, KORESPACES, type KoreSpace, type KoreSpaceStatus } from "./types";
+import { GROUP, VERSION, KORESPACES, type KoreSpace } from "./types";
+import { patchCRStatus } from "./status";
 
 const mergePatch = setHeaderOptions("Content-Type", PatchStrategy.MergePatch);
 
@@ -90,34 +91,10 @@ export async function reconcileSpace(_ns: string, name: string): Promise<void> {
     });
   }
 
-  await setStatus(ksp, { phase: "Running", namespace }, "Provisioned", "Namespace + quota ready");
-}
-
-async function setStatus(
-  ksp: KoreSpace,
-  partial: Partial<KoreSpaceStatus>,
-  reason: string,
-  message: string,
-): Promise<void> {
-  const { custom } = k8sClients();
-  const status: KoreSpaceStatus = {
-    ...partial,
-    observedGeneration: ksp.metadata.generation,
-    conditions: [
-      {
-        type: "Ready",
-        status: partial.phase === "Running" ? "True" : "False",
-        observedGeneration: ksp.metadata.generation,
-        lastTransitionTime: new Date().toISOString(),
-        reason,
-        message,
-      },
-    ],
-  };
-  await custom
-    .patchClusterCustomObjectStatus(
-      { group: GROUP, version: VERSION, plural: KORESPACES, name: ksp.metadata.name, body: { status } },
-      mergePatch,
-    )
-    .catch((e: unknown) => console.error("[space-status]", ksp.metadata.name, e));
+  await patchCRStatus(
+    { plural: KORESPACES, meta: ksp.metadata, cluster: true, logPrefix: "[space-status]" },
+    { phase: "Running", namespace },
+    "Provisioned",
+    "Namespace + quota ready",
+  );
 }

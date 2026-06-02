@@ -1,12 +1,7 @@
 import { setHeaderOptions, PatchStrategy } from "@kubernetes/client-node";
 import { k8sClients, managedLabels } from "@korepush/k8s/client";
-import {
-  GROUP,
-  VERSION,
-  KOREDATABASES,
-  type KoreDatabase,
-  type KoreDatabaseStatus,
-} from "./types";
+import { GROUP, VERSION, KOREDATABASES, type KoreDatabase } from "./types";
+import { patchCRStatus } from "./status";
 
 const mergePatch = setHeaderOptions("Content-Type", PatchStrategy.MergePatch);
 const CNPG_GROUP = "postgresql.cnpg.io";
@@ -84,46 +79,10 @@ export async function reconcileDatabase(namespace: string, name: string): Promis
     .catch(() => null)) as { status?: { phase?: string; readyInstances?: number } } | null;
   const ready = cr?.status?.readyInstances ?? 0;
   const phase = ready >= instances ? "Running" : "Provisioning";
-  await setStatus(
-    kdb,
+  await patchCRStatus(
+    { plural: KOREDATABASES, meta: kdb.metadata, logPrefix: "[db-status]" },
     { phase, connectionSecret, readyInstances: ready },
     "Reconciled",
     cr?.status?.phase ?? "Provisioning CNPG cluster",
   );
-}
-
-async function setStatus(
-  kdb: KoreDatabase,
-  partial: Partial<KoreDatabaseStatus>,
-  reason: string,
-  message: string,
-): Promise<void> {
-  const { custom } = k8sClients();
-  const status: KoreDatabaseStatus = {
-    ...partial,
-    observedGeneration: kdb.metadata.generation,
-    conditions: [
-      {
-        type: "Ready",
-        status: partial.phase === "Running" ? "True" : "False",
-        observedGeneration: kdb.metadata.generation,
-        lastTransitionTime: new Date().toISOString(),
-        reason,
-        message,
-      },
-    ],
-  };
-  await custom
-    .patchNamespacedCustomObjectStatus(
-      {
-        group: GROUP,
-        version: VERSION,
-        namespace: kdb.metadata.namespace,
-        plural: KOREDATABASES,
-        name: kdb.metadata.name,
-        body: { status },
-      },
-      mergePatch,
-    )
-    .catch((e: unknown) => console.error("[db-status]", kdb.metadata.name, e));
 }

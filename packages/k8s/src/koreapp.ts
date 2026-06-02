@@ -19,14 +19,6 @@ export type EnvVarSpec = {
 export type KoreAppSpec = {
   source: "image" | "git";
   image?: string;
-  git?: {
-    repoUrl: string;
-    ref?: string;
-    rootDir?: string;
-    installCmd?: string;
-    buildCmd?: string;
-    startCmd?: string;
-  };
   port: number;
   replicas?: number;
   env?: EnvVarSpec[];
@@ -35,31 +27,18 @@ export type KoreAppSpec = {
   database?: { name: string; envVar?: string };
 };
 
-// The subset of an `apps` row this module reads.
+// The subset of an `apps` row this module reads. (Git build config lives only on
+// the Postgres row / build Job — it was never read off the CR, so it's not here.)
 type AppLike = {
   slug: string;
   source: string;
   image: string | null;
-  repoUrl: string | null;
-  gitRef: string | null;
-  rootDir: string | null;
-  installCmd: string | null;
-  buildCmd: string | null;
-  startCmd: string | null;
   port: number;
   replicas: number;
   env: Record<string, string> | null;
   secretKeys: string[] | null;
   dbEnvVar: string;
 };
-
-/** The CRD requires git.repoUrl to match ^https:// — normalise SSH/bare forms. */
-function normalizeRepoUrl(u: string): string {
-  let s = u.trim();
-  s = s.replace(/^git@([^:]+):/i, "https://$1/");
-  if (!/^https?:\/\//i.test(s)) s = `https://${s}`;
-  return s.replace(/^http:\/\//i, "https://");
-}
 
 /** Env list from the plain-env map, preserving key order (matches the operator). */
 export function envSpec(env: Record<string, string> | null): EnvVarSpec[] {
@@ -77,16 +56,6 @@ export function buildKoreAppSpec(
     replicas: app.replicas,
   };
   if (app.image) spec.image = app.image;
-  if (spec.source === "git" && app.repoUrl) {
-    spec.git = {
-      repoUrl: normalizeRepoUrl(app.repoUrl),
-      ref: app.gitRef || "main",
-      ...(app.rootDir ? { rootDir: app.rootDir } : {}),
-      ...(app.installCmd ? { installCmd: app.installCmd } : {}),
-      ...(app.buildCmd ? { buildCmd: app.buildCmd } : {}),
-      ...(app.startCmd ? { startCmd: app.startCmd } : {}),
-    };
-  }
   const env = envSpec(app.env);
   if (env.length) spec.env = env;
   if (app.secretKeys?.length) spec.envFrom = [{ secretRef: { name: `${app.slug}-env` } }];
