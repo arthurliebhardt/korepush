@@ -16,7 +16,9 @@ import {
   listProjectEnvs,
   listKoreAppPhases,
 } from "@korepush/k8s";
-import { AppLive } from "@/components/app-live";
+import { AppStatus } from "@/components/app-status";
+import { AppLogs } from "@/components/app-logs";
+import { AppTabs } from "@/components/app-tabs";
 import { AppMetrics } from "@/components/app-metrics";
 import { AppDiagnostics } from "@/components/app-diagnostics";
 import { AppEnv } from "@/components/app-env";
@@ -33,10 +35,13 @@ export const dynamic = "force-dynamic";
 
 export default async function AppPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string; appSlug: string }>;
+  searchParams: Promise<{ tab?: string }>;
 }) {
   const { slug, appSlug } = await params;
+  const { tab = "overview" } = await searchParams;
   const { session, space } = await requireSpacePage(slug);
   let app = await getApp(space.id, appSlug);
   if (!app) notFound();
@@ -55,6 +60,7 @@ export default async function AppPage({
 
   const baseDomain = process.env.KOREPUSH_BASE_DOMAIN ?? "localhost";
   const autoHost = `${app.slug}.${space.slug}.${baseDomain}`;
+  const basePath = `/spaces/${space.slug}/apps/${app.slug}`;
 
   // Everything below is independent given `space`+`app`; fetch in parallel
   // (k8s API / DB / Prometheus) instead of serially blocking first paint.
@@ -130,108 +136,126 @@ export default async function AppPage({
         </div>
       )}
 
-      <div className="mt-4 mb-6 flex items-start justify-between">
-        <div>
+      <div className="mt-4 mb-6 flex items-start justify-between gap-4">
+        <div className="min-w-0">
           <h1 className="text-xl font-semibold">{app.name}</h1>
-          <p className="mt-1 font-mono text-xs text-muted">
+          <p className="mt-1 truncate font-mono text-xs text-muted">
             {isGit ? app.repoUrl : app.image} · :{app.port} · {space.namespace}
           </p>
         </div>
-        {isGit && (
-          <RedeployButton spaceSlug={space.slug} appSlug={app.slug} />
-        )}
+        <div className="flex shrink-0 items-center gap-2">
+          {app.image && (
+            <a
+              href={`//${autoHost}`}
+              target="_blank"
+              rel="noreferrer"
+              className="btn-ghost"
+            >
+              Open ↗
+            </a>
+          )}
+          {isGit && <RedeployButton spaceSlug={space.slug} appSlug={app.slug} />}
+        </div>
       </div>
 
-      <div className="mb-5 space-y-5">
-        <AttachDatabase
-          spaceSlug={space.slug}
-          appSlug={app.slug}
-          databases={databases}
-          attachedDbId={app.attachedDbId}
-          dbEnvVar={app.dbEnvVar}
-        />
-        <EnvEditor
-          spaceSlug={space.slug}
-          appSlug={app.slug}
-          env={app.env}
-          secretKeys={app.secretKeys}
-          dbEnvVar={app.dbEnvVar}
-        />
-        <CustomDomains
-          spaceSlug={space.slug}
-          appSlug={app.slug}
-          initial={appDomains}
-          serverIp={nodeIp}
-          autoHost={autoHost}
-        />
-      </div>
+      {/* Build console as a banner (not a full-page swap) — the tabs stay usable. */}
+      {buildId && (
+        <div className="mb-6">
+          <BuildLogs
+            spaceSlug={space.slug}
+            appSlug={app.slug}
+            deploymentId={buildId}
+          />
+        </div>
+      )}
 
-      {buildId ? (
-        <BuildLogs
+      <AppTabs basePath={basePath} active={tab} />
+
+      {tab === "logs" ? (
+        <AppLogs spaceSlug={space.slug} appSlug={app.slug} />
+      ) : tab === "metrics" ? (
+        <AppMetrics
           spaceSlug={space.slug}
           appSlug={app.slug}
-          deploymentId={buildId}
+          namespace={space.namespace}
         />
+      ) : tab === "deployments" ? (
+        deployments.length > 0 ? (
+          <ul className="space-y-2">
+            {deployments.map((d) => {
+              const tag = d.image?.split(":").pop() ?? "—";
+              const isCurrent = !!d.image && d.image === app.image;
+              const canRollback =
+                d.status === "succeeded" && !!d.image && !isCurrent;
+              return (
+                <li
+                  key={d.id}
+                  className="card flex items-center justify-between py-3"
+                >
+                  <div className="flex items-center gap-3">
+                    <StatusBadge status={d.status} />
+                    <span className="font-mono text-xs">{tag}</span>
+                    <span className="text-xs text-muted">{d.trigger}</span>
+                    <span className="text-xs text-muted">
+                      {timeAgo(d.createdAt)}
+                    </span>
+                  </div>
+                  {isCurrent ? (
+                    <span className="text-xs text-success-fg">Current</span>
+                  ) : canRollback ? (
+                    <RollbackButton
+                      spaceSlug={space.slug}
+                      appSlug={app.slug}
+                      deploymentId={d.id}
+                      tag={tag}
+                    />
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <div className="card py-12 text-center text-sm text-muted">
+            No deployments yet.
+          </div>
+        )
+      ) : tab === "settings" ? (
+        <div className="space-y-5">
+          <AttachDatabase
+            spaceSlug={space.slug}
+            appSlug={app.slug}
+            databases={databases}
+            attachedDbId={app.attachedDbId}
+            dbEnvVar={app.dbEnvVar}
+          />
+          <EnvEditor
+            spaceSlug={space.slug}
+            appSlug={app.slug}
+            env={app.env}
+            secretKeys={app.secretKeys}
+            dbEnvVar={app.dbEnvVar}
+          />
+          <CustomDomains
+            spaceSlug={space.slug}
+            appSlug={app.slug}
+            initial={appDomains}
+            serverIp={nodeIp}
+            autoHost={autoHost}
+          />
+          <AppEnv
+            spaceSlug={space.slug}
+            appSlug={app.slug}
+            initial={effectiveEnv}
+          />
+        </div>
       ) : (
-        <div className="space-y-8">
-          <AppLive
+        <div className="space-y-6">
+          <AppStatus
             spaceSlug={space.slug}
             appSlug={app.slug}
             initialStatus={initialStatus}
           />
-          <AppMetrics
-            spaceSlug={space.slug}
-            appSlug={app.slug}
-            namespace={space.namespace}
-          />
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
-            <AppDiagnostics spaceSlug={space.slug} appSlug={app.slug} />
-            <AppEnv
-              spaceSlug={space.slug}
-              appSlug={app.slug}
-              initial={effectiveEnv}
-            />
-          </div>
-          {deployments.length > 0 && (
-            <div>
-              <h2 className="mb-3 text-sm font-medium text-muted">
-                Deployments
-              </h2>
-              <ul className="space-y-2">
-                {deployments.map((d) => {
-                  const tag = d.image?.split(":").pop() ?? "—";
-                  const isCurrent = !!d.image && d.image === app.image;
-                  const canRollback =
-                    d.status === "succeeded" && !!d.image && !isCurrent;
-                  return (
-                    <li
-                      key={d.id}
-                      className="card flex items-center justify-between py-3"
-                    >
-                      <div className="flex items-center gap-3">
-                        <StatusBadge status={d.status} />
-                        <span className="font-mono text-xs">{tag}</span>
-                        <span className="text-xs text-muted">{d.trigger}</span>
-                        <span className="text-xs text-muted">
-                          {timeAgo(d.createdAt)}
-                        </span>
-                      </div>
-                      {isCurrent ? (
-                        <span className="text-xs text-success">Current</span>
-                      ) : canRollback ? (
-                        <RollbackButton
-                          spaceSlug={space.slug}
-                          appSlug={app.slug}
-                          deploymentId={d.id}
-                          tag={tag}
-                        />
-                      ) : null}
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          )}
+          <AppDiagnostics spaceSlug={space.slug} appSlug={app.slug} />
         </div>
       )}
       </main>
