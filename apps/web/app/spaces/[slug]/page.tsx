@@ -15,6 +15,7 @@ import { CreateApp } from "@/components/create-app";
 import { CreateDatabase } from "@/components/create-database";
 import { DatabaseCard } from "@/components/database-card";
 import { AppShellHeader } from "@/components/app-shell-header";
+import { EmptyState } from "@/components/ui/empty-state";
 import { blankEnvKeys } from "@/lib/env-warnings";
 
 export const dynamic = "force-dynamic";
@@ -114,9 +115,10 @@ export default async function SpacePage({
       </div>
 
       {apps.length === 0 ? (
-        <div className="card py-12 text-center text-sm text-muted">
-          No apps yet. Deploy one from a container image to get started.
-        </div>
+        <EmptyState
+          title="No apps yet"
+          description="Deploy your first app from a container image or a GitHub repo."
+        />
       ) : (
         <ul className="space-y-3">
           {projects.map((group) => {
@@ -190,9 +192,10 @@ export default async function SpacePage({
       </div>
 
       {databases.length === 0 ? (
-        <div className="card py-12 text-center text-sm text-muted">
-          No databases yet. Create a Postgres database for your apps.
-        </div>
+        <EmptyState
+          title="No databases yet"
+          description="Create a Postgres database to attach to your apps."
+        />
       ) : (
         <ul className="space-y-3">
           {databases.map((d) => (

@@ -19,6 +19,7 @@ import {
 import { AppStatus } from "@/components/app-status";
 import { AppLogs } from "@/components/app-logs";
 import { AppTabs } from "@/components/app-tabs";
+import { EmptyState } from "@/components/ui/empty-state";
 import { AppMetrics } from "@/components/app-metrics";
 import { AppDiagnostics } from "@/components/app-diagnostics";
 import { AppEnv } from "@/components/app-env";
@@ -215,9 +216,10 @@ export default async function AppPage({
             })}
           </ul>
         ) : (
-          <div className="card py-12 text-center text-sm text-muted">
-            No deployments yet.
-          </div>
+          <EmptyState
+            title="No deployments yet"
+            description="Deployments appear here as you build, redeploy, and roll back."
+          />
         )
       ) : tab === "settings" ? (
         <div className="space-y-5">
