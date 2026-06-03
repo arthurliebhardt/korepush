@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { StatusBadge } from "@/components/status-badge";
+import { toast } from "@/components/ui/toast";
+import { confirmDialog } from "@/components/ui/confirm-dialog";
 import { deleteDatabaseAction } from "@/app/actions";
 
 export function DatabaseCard({
@@ -35,11 +37,21 @@ export function DatabaseCard({
         <button
           className="text-xs text-muted hover:text-danger"
           disabled={pending}
-          onClick={() => {
-            if (!confirm(`Delete database "${name}"? This destroys its data.`))
-              return;
+          onClick={async () => {
+            const ok = await confirmDialog({
+              title: `Delete database "${name}"?`,
+              body: "This permanently destroys its data and detaches it from any apps using it.",
+              confirmLabel: "Delete",
+              danger: true,
+            });
+            if (!ok) return;
             startTransition(async () => {
-              await deleteDatabaseAction(spaceSlug, slug);
+              const res = await deleteDatabaseAction(spaceSlug, slug);
+              if (!res.ok) {
+                toast.error(res.error);
+                return;
+              }
+              toast.success(`Database "${name}" deleted`);
               router.refresh();
             });
           }}
@@ -56,9 +68,14 @@ export function DatabaseCard({
           <button
             className="btn-ghost shrink-0 px-2 py-1 text-xs"
             onClick={async () => {
-              await navigator.clipboard.writeText(connectionUri);
-              setCopied(true);
-              setTimeout(() => setCopied(false), 1500);
+              try {
+                await navigator.clipboard.writeText(connectionUri);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1500);
+                toast.success("Connection string copied");
+              } catch {
+                toast.error("Couldn't copy to clipboard");
+              }
             }}
           >
             {copied ? "Copied!" : "Copy connection string"}

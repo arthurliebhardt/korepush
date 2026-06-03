@@ -7,6 +7,8 @@ import {
   refreshAppDomainsAction,
   type AppDomainView,
 } from "@/app/actions";
+import { toast } from "@/components/ui/toast";
+import { confirmDialog } from "@/components/ui/confirm-dialog";
 
 const STATUS: Record<string, { label: string; cls: string }> = {
   active: { label: "active", cls: "text-success" },
@@ -54,6 +56,7 @@ export function CustomDomains({
 
   function add() {
     setError(null);
+    const added = host;
     startTransition(async () => {
       const res = await addAppDomainAction(spaceSlug, appSlug, host, useStaging);
       if (!res.ok) {
@@ -63,12 +66,25 @@ export function CustomDomains({
       setHost("");
       setUseStaging(false);
       setDomains(await refreshAppDomainsAction(spaceSlug, appSlug));
+      toast.success(`${added} added — point its DNS here`);
     });
   }
 
-  function remove(h: string) {
+  async function remove(h: string) {
+    const ok = await confirmDialog({
+      title: `Remove ${h}?`,
+      body: "Its HTTPS certificate and routing for this app will be torn down.",
+      confirmLabel: "Remove",
+      danger: true,
+    });
+    if (!ok) return;
     startTransition(async () => {
-      await removeAppDomainAction(spaceSlug, appSlug, h);
+      const res = await removeAppDomainAction(spaceSlug, appSlug, h);
+      if (!res.ok) {
+        toast.error(res.error);
+        return;
+      }
+      toast.success(`${h} removed`);
       setDomains(await refreshAppDomainsAction(spaceSlug, appSlug));
     });
   }

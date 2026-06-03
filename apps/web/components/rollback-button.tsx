@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { rollbackAction } from "@/app/actions";
+import { toast } from "@/components/ui/toast";
+import { confirmDialog } from "@/components/ui/confirm-dialog";
 
 export function RollbackButton({
   spaceSlug,
@@ -25,13 +27,13 @@ export function RollbackButton({
       <button
         className="text-xs text-muted hover:text-foreground"
         disabled={pending}
-        onClick={() => {
-          if (
-            !confirm(
-              `Roll back to ${tag}? This re-points the app to that image without rebuilding. It rolls back code only — current env vars are kept.`,
-            )
-          )
-            return;
+        onClick={async () => {
+          const ok = await confirmDialog({
+            title: `Roll back to ${tag}?`,
+            body: "Re-points the app to that image without rebuilding — code only; current env vars are kept.",
+            confirmLabel: "Roll back",
+          });
+          if (!ok) return;
           setError(null);
           startTransition(async () => {
             const res = await rollbackAction(spaceSlug, appSlug, deploymentId);
@@ -39,6 +41,7 @@ export function RollbackButton({
               setError(res.error);
               return;
             }
+            toast.success(`Rolling back to ${tag}`);
             router.refresh();
           });
         }}

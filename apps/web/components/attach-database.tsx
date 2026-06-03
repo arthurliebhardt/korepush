@@ -3,6 +3,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { attachDatabaseAction, detachDatabaseAction } from "@/app/actions";
+import { toast } from "@/components/ui/toast";
+import { confirmDialog } from "@/components/ui/confirm-dialog";
 
 type Db = { id: string; name: string };
 
@@ -44,7 +46,14 @@ export function AttachDatabase({
           <button
             className="text-xs text-muted hover:text-danger"
             disabled={pending}
-            onClick={() => {
+            onClick={async () => {
+              const ok = await confirmDialog({
+                title: "Detach database?",
+                body: "The app redeploys without its injected DATABASE_URL.",
+                confirmLabel: "Detach",
+                danger: true,
+              });
+              if (!ok) return;
               setError(null);
               startTransition(async () => {
                 const res = await detachDatabaseAction(spaceSlug, appSlug);
@@ -52,6 +61,7 @@ export function AttachDatabase({
                   setError(res.error);
                   return;
                 }
+                toast.success("Database detached");
                 router.refresh();
               });
             }}
@@ -90,6 +100,7 @@ export function AttachDatabase({
                   setError(res.error);
                   return;
                 }
+                toast.success("Database attached");
                 router.refresh();
               });
             }}
