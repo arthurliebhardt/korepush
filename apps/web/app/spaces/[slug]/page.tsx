@@ -15,7 +15,7 @@ import { BlankEnvBadge } from "@/components/blank-env-badge";
 import { CreateApp } from "@/components/create-app";
 import { CreateDatabase } from "@/components/create-database";
 import { DatabaseCard } from "@/components/database-card";
-import { AppShellHeader } from "@/components/app-shell-header";
+import { AppShell } from "@/components/app-shell";
 import { EmptyState } from "@/components/ui/empty-state";
 import { DeleteSpace } from "@/components/delete-space";
 import { blankEnvKeys } from "@/lib/env-warnings";
@@ -29,6 +29,7 @@ export default async function SpacePage({
 }) {
   const { slug } = await params;
   const { session, space } = await requireSpacePage(slug);
+  const isAdmin = (session.user as { role?: string }).role === "admin";
 
   // All independent of one another given `space` — fetch in parallel (Postgres,
   // k8s API, Prometheus, GitHub) instead of serially blocking first paint.
@@ -81,11 +82,13 @@ export default async function SpacePage({
   );
 
   return (
-    <div className="flex flex-1 flex-col">
-      <AppShellHeader
-        email={session.user.email}
-        crumbs={[{ label: "Spaces", href: "/" }, { label: space.name }]}
-      />
+    <AppShell
+      email={session.user.email}
+      isAdmin={isAdmin}
+      userId={session.user.id}
+      activeSpaceSlug={space.slug}
+      crumbs={[{ label: "Spaces", href: "/" }, { label: space.name }]}
+    >
       <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
       <div className="mb-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
@@ -232,7 +235,7 @@ export default async function SpacePage({
         <DeleteSpace slug={space.slug} name={space.name} />
       </div>
       </main>
-    </div>
+    </AppShell>
   );
 }
 

@@ -21,7 +21,10 @@ export async function AppShellHeader({
   return (
     <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-border bg-bg-subtle/80 px-5 backdrop-blur">
       <nav className="flex min-w-0 items-center gap-2 text-sm">
-        <Brand />
+        {/* On desktop the sidebar carries the brand; show it here only on mobile. */}
+        <span className="md:hidden">
+          <Brand />
+        </span>
         {crumbs.map((c, i) => (
           <span key={i} className="flex min-w-0 items-center gap-2">
             <span className="text-fg-faint" aria-hidden>
