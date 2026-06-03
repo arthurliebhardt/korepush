@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { StatusBadge } from "@/components/status-badge";
+import { LogViewer } from "@/components/ui/log-viewer";
 
 export function BuildLogs({
   spaceSlug,
@@ -18,7 +19,6 @@ export function BuildLogs({
   const [settled, setSettled] = useState(false);
   const [note, setNote] = useState<string>("");
   const [logs, setLogs] = useState<string[]>([]);
-  const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const es = new EventSource(
@@ -51,10 +51,6 @@ export function BuildLogs({
     return () => clearInterval(id);
   }, [settled, router]);
 
-  useEffect(() => {
-    logRef.current?.scrollTo({ top: logRef.current.scrollHeight });
-  }, [logs]);
-
   return (
     <div className="space-y-3">
       <div className="card flex items-center gap-3">
@@ -62,20 +58,7 @@ export function BuildLogs({
         <StatusBadge status={status} />
         {note && <span className="text-xs text-muted">{note}</span>}
       </div>
-      <div
-        ref={logRef}
-        className="h-96 overflow-auto rounded-xl border border-border bg-black p-4 font-mono text-xs leading-relaxed text-zinc-300"
-      >
-        {logs.length === 0 ? (
-          <span className="text-muted">Waiting for build output…</span>
-        ) : (
-          logs.map((line, i) => (
-            <div key={i} className="whitespace-pre-wrap break-all">
-              {line}
-            </div>
-          ))
-        )}
-      </div>
+      <LogViewer lines={logs} filename={`build-${appSlug}.txt`} />
     </div>
   );
 }

@@ -70,12 +70,22 @@ function parse(line: string): ParsedLog {
   };
 }
 
-export const LogLine = memo(function LogLine({ line }: { line: string }) {
+export const LogLine = memo(function LogLine({
+  line,
+  wrap = true,
+}: {
+  line: string;
+  wrap?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const p = parse(line);
 
   if (!p.obj) {
-    return <div className="whitespace-pre-wrap break-all">{line}</div>;
+    return (
+      <div className={wrap ? "whitespace-pre-wrap break-all" : "whitespace-pre"}>
+        {line}
+      </div>
+    );
   }
 
   const levelColor = (p.level && LEVEL_COLOR[p.level]) || "text-muted";
