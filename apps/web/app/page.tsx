@@ -5,7 +5,7 @@ import { getAppConfig } from "@/lib/github/config";
 import { StatusBadge } from "@/components/status-badge";
 import { CreateSpace } from "@/components/create-space";
 import { Onboarding } from "@/components/onboarding";
-import { AppShellHeader } from "@/components/app-shell-header";
+import { AppShell } from "@/components/app-shell";
 
 export const dynamic = "force-dynamic";
 
@@ -21,9 +21,11 @@ export default async function DashboardPage() {
   const onboarding = spaces.length === 0;
 
   return (
-    <div className="flex flex-1 flex-col">
-      <AppShellHeader email={session.user.email} />
-
+    <AppShell
+      email={session.user.email}
+      isAdmin={isAdmin}
+      userId={session.user.id}
+    >
       <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
         {onboarding ? (
           <Onboarding
@@ -84,6 +86,6 @@ export default async function DashboardPage() {
           </>
         )}
       </main>
-    </div>
+    </AppShell>
   );
 }

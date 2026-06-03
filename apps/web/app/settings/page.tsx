@@ -1,7 +1,7 @@
 import { requireUser } from "@/lib/session";
 import { getControlPlaneInfo } from "@korepush/k8s";
 import { DomainSettings } from "@/components/domain-settings";
-import { AppShellHeader } from "@/components/app-shell-header";
+import { AppShell } from "@/components/app-shell";
 import { getAppConfig } from "@/lib/github/config";
 import { listInstallations } from "@/lib/github/app";
 
@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
   const session = await requireUser();
+  const isAdmin = (session.user as { role?: string }).role === "admin";
 
   let hosts: string[] = [];
   let unavailable: string | null = null;
@@ -24,11 +25,12 @@ export default async function SettingsPage() {
   const installations = ghApp ? await listInstallations().catch(() => []) : [];
 
   return (
-    <div className="flex flex-1 flex-col">
-      <AppShellHeader
-        email={session.user.email}
-        crumbs={[{ label: "Settings" }]}
-      />
+    <AppShell
+      email={session.user.email}
+      isAdmin={isAdmin}
+      userId={session.user.id}
+      crumbs={[{ label: "Settings" }]}
+    >
       <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-8">
       <div className="mb-6">
         <h1 className="text-xl font-semibold">Settings</h1>
@@ -100,6 +102,6 @@ export default async function SettingsPage() {
         )}
       </div>
       </main>
-    </div>
+    </AppShell>
   );
 }
