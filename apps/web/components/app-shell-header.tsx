@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { clusterReachable } from "@korepush/k8s";
 import { Brand } from "@/components/brand";
+import { CommandHint } from "@/components/ui/command-hint";
 import { SignOutButton } from "@/components/sign-out-button";
 
 export type Crumb = { label: string; href?: string };
@@ -43,6 +44,7 @@ export async function AppShellHeader({
       </nav>
 
       <div className="flex shrink-0 items-center gap-3 text-sm">
+        <CommandHint />
         <span
           className={`hidden items-center gap-1.5 text-xs sm:inline-flex ${
             clusterOk ? "text-success-fg" : "text-danger-fg"
