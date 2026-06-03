@@ -17,6 +17,7 @@ import { CreateDatabase } from "@/components/create-database";
 import { DatabaseCard } from "@/components/database-card";
 import { AppShellHeader } from "@/components/app-shell-header";
 import { EmptyState } from "@/components/ui/empty-state";
+import { DeleteSpace } from "@/components/delete-space";
 import { blankEnvKeys } from "@/lib/env-warnings";
 
 export const dynamic = "force-dynamic";
@@ -226,6 +227,10 @@ export default async function SpacePage({
           ))}
         </ul>
       )}
+
+      <div className="mt-12">
+        <DeleteSpace slug={space.slug} name={space.name} />
+      </div>
       </main>
     </div>
   );

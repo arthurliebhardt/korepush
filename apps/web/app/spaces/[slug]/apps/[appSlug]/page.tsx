@@ -20,6 +20,7 @@ import { AppStatus } from "@/components/app-status";
 import { AppLogs } from "@/components/app-logs";
 import { AppTabs } from "@/components/app-tabs";
 import { EmptyState } from "@/components/ui/empty-state";
+import { DeleteApp } from "@/components/delete-app";
 import { AppMetrics } from "@/components/app-metrics";
 import { AppDiagnostics } from "@/components/app-diagnostics";
 import { AppEnv } from "@/components/app-env";
@@ -285,6 +286,11 @@ export default async function AppPage({
             spaceSlug={space.slug}
             appSlug={app.slug}
             initial={effectiveEnv}
+          />
+          <DeleteApp
+            spaceSlug={space.slug}
+            appSlug={app.slug}
+            appName={app.name}
           />
         </div>
       ) : (
