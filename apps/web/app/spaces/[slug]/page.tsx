@@ -6,6 +6,7 @@ import {
   getDatabaseInfo,
   getSpaceMetrics,
   listKoreAppPhases,
+  lastDeployedAt,
   phaseToStatus,
 } from "@korepush/k8s";
 import { listAllConnectedRepos } from "@/lib/github/app";
@@ -44,6 +45,7 @@ export default async function SpacePage({
     ...a,
     status: phaseToStatus(phases[a.slug]) ?? a.status,
   }));
+  const lastDeploy = await lastDeployedAt(appRows.map((a) => a.id));
   // Group environments of one app (shared projectId) into a single card; a
   // single-environment app is one group of size 1 and renders as before.
   const projectMap = new Map<string, typeof apps>();
@@ -128,9 +130,9 @@ export default async function SpacePage({
                 <li key={app.id}>
                   <Link
                     href={`/spaces/${space.slug}/apps/${app.slug}`}
-                    className="card flex items-center justify-between transition-colors hover:border-zinc-500"
+                    className="card card-interactive flex items-start justify-between gap-3"
                   >
-                    <div>
+                    <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <span className="font-medium">{app.name}</span>
                         <StatusBadge status={app.status} />
@@ -139,11 +141,16 @@ export default async function SpacePage({
                           dbEnvVar={app.dbEnvVar}
                         />
                       </div>
-                      <p className="mt-1 font-mono text-xs text-muted">
-                        {app.image}
+                      <p className="mt-1 truncate font-mono text-xs text-muted">
+                        {app.slug}.{space.slug}.{baseDomain}
                       </p>
                     </div>
-                    <span className="text-sm text-muted">:{app.port}</span>
+                    <div className="shrink-0 text-right text-xs text-muted">
+                      <div>:{app.port}</div>
+                      {lastDeploy[app.id] && (
+                        <div className="mt-1">{timeAgo(lastDeploy[app.id])}</div>
+                      )}
+                    </div>
                   </Link>
                 </li>
               );
@@ -158,9 +165,9 @@ export default async function SpacePage({
                     <li key={env.id}>
                       <Link
                         href={`/spaces/${space.slug}/apps/${env.slug}`}
-                        className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm transition-colors hover:border-zinc-500"
+                        className="flex items-center justify-between gap-3 rounded-lg border border-border px-3 py-2 text-sm transition-colors hover:border-border-strong"
                       >
-                        <div className="flex items-center gap-2">
+                        <div className="flex min-w-0 items-center gap-2">
                           <span className="text-xs font-medium uppercase text-muted">
                             {env.environment}
                           </span>
@@ -173,9 +180,16 @@ export default async function SpacePage({
                             {env.gitRef}
                           </span>
                         </div>
-                        <span className="font-mono text-xs text-muted">
-                          {env.slug}.{space.slug}.{baseDomain}
-                        </span>
+                        <div className="shrink-0 text-right">
+                          <span className="font-mono text-xs text-muted">
+                            {env.slug}.{space.slug}.{baseDomain}
+                          </span>
+                          {lastDeploy[env.id] && (
+                            <div className="text-xs text-fg-subtle">
+                              {timeAgo(lastDeploy[env.id])}
+                            </div>
+                          )}
+                        </div>
                       </Link>
                     </li>
                   ))}
@@ -224,6 +238,17 @@ function UsageTile({ label, value }: { label: string; value: string }) {
       <div className="mt-1 font-mono text-lg text-foreground">{value}</div>
     </div>
   );
+}
+
+function timeAgo(date?: Date): string {
+  if (!date) return "";
+  const s = Math.floor((Date.now() - new Date(date).getTime()) / 1000);
+  if (s < 60) return "just now";
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
 }
 
 function fmtCores(n: number): string {

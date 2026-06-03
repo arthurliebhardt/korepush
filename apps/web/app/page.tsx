@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { requireUser } from "@/lib/session";
-import { listSpaces, listSpacesForUser } from "@korepush/k8s";
+import { listSpacesWithStats } from "@korepush/k8s";
 import { getAppConfig } from "@/lib/github/config";
 import { StatusBadge } from "@/components/status-badge";
 import { CreateSpace } from "@/components/create-space";
@@ -14,7 +14,7 @@ export default async function DashboardPage() {
   // Each user sees only their own spaces; an admin sees the whole platform.
   const isAdmin = (session.user as { role?: string }).role === "admin";
   const [spaces, ghApp] = await Promise.all([
-    isAdmin ? listSpaces() : listSpacesForUser(session.user.id),
+    listSpacesWithStats(isAdmin ? undefined : session.user.id),
     getAppConfig().catch(() => null),
   ]);
   // First run (no spaces yet) → show the guided onboarding instead of the grid.
@@ -56,6 +56,27 @@ export default async function DashboardPage() {
                     <p className="mt-1 font-mono text-xs text-muted">
                       {space.namespace}
                     </p>
+                    <div className="mt-3 flex items-center gap-2 text-xs text-muted">
+                      {space.appCount > 0 && (
+                        <span
+                          className={`size-1.5 rounded-full ${space.failedApps > 0 ? "bg-danger-fg" : "bg-success-fg"}`}
+                          title={
+                            space.failedApps > 0
+                              ? `${space.failedApps} app(s) need attention`
+                              : "All apps healthy"
+                          }
+                          aria-hidden
+                        />
+                      )}
+                      <span>
+                        {space.appCount} {space.appCount === 1 ? "app" : "apps"}
+                      </span>
+                      <span className="text-fg-faint">·</span>
+                      <span>
+                        {space.dbCount}{" "}
+                        {space.dbCount === 1 ? "database" : "databases"}
+                      </span>
+                    </div>
                   </Link>
                 </li>
               ))}
