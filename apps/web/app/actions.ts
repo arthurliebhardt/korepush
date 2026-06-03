@@ -105,6 +105,7 @@ export async function createGitAppAction(input: {
   installCmd?: string;
   buildCmd?: string;
   startCmd?: string;
+  attachDatabaseId?: string;
 }): Promise<BuildActionResult> {
   await assertOwnsSpace(input.spaceSlug);
   try {
@@ -142,6 +143,15 @@ export async function createGitAppAction(input: {
     // Persist env (incl. secrets) before the build; the operator injects them
     // once the build patches spec.image onto the CR.
     if (split) await setAppEnv(input.spaceSlug, app.slug, split);
+    // Attach a database BEFORE the first build so its connection string is
+    // injected on the very first deploy (avoids a build-then-redeploy cycle).
+    if (input.attachDatabaseId) {
+      await attachDatabase(
+        input.spaceSlug,
+        app.slug,
+        input.attachDatabaseId,
+      ).catch(() => {});
+    }
     const token = await mintCloneTokenForRepo(repoUrl).catch(() => null);
     const { deploymentId } = await triggerGitBuild(
       input.spaceSlug,

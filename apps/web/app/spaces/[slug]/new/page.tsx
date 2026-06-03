@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { requireSpacePage } from "@/lib/session";
 import { listAllConnectedRepos } from "@/lib/github/app";
+import { listDatabases } from "@korepush/k8s";
 import { AppShell } from "@/components/app-shell";
 import { CreateApp } from "@/components/create-app";
 
@@ -15,12 +16,16 @@ export default async function DeployAppPage({
   const { session, space } = await requireSpacePage(slug);
   const u = session.user as { id: string; email: string; role?: string };
 
-  const repoRows = await listAllConnectedRepos().catch(() => []);
+  const [repoRows, dbRows] = await Promise.all([
+    listAllConnectedRepos().catch(() => []),
+    listDatabases(space.id).catch(() => []),
+  ]);
   const repos = repoRows.map((r) => ({
     fullName: r.fullName,
     cloneUrl: r.cloneUrl,
     defaultBranch: r.defaultBranch,
   }));
+  const databases = dbRows.map((d) => ({ id: d.id, name: d.name }));
 
   return (
     <AppShell
@@ -49,7 +54,12 @@ export default async function DeployAppPage({
           Connect a GitHub repo or a container image. Build logs stream live on
           the next screen.
         </p>
-        <CreateApp spaceSlug={space.slug} repos={repos} embedded />
+        <CreateApp
+          spaceSlug={space.slug}
+          repos={repos}
+          databases={databases}
+          embedded
+        />
       </main>
     </AppShell>
   );

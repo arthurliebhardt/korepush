@@ -25,6 +25,7 @@ import { AppMetrics } from "@/components/app-metrics";
 import { AppDiagnostics } from "@/components/app-diagnostics";
 import { AppEnv } from "@/components/app-env";
 import { BuildLogs } from "@/components/build-logs";
+import { DeploySuccessBanner } from "@/components/deploy-success-banner";
 import { RedeployButton } from "@/components/redeploy-button";
 import { RollbackButton } from "@/components/rollback-button";
 import { AttachDatabase } from "@/components/attach-database";
@@ -40,10 +41,10 @@ export default async function AppPage({
   searchParams,
 }: {
   params: Promise<{ slug: string; appSlug: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; build?: string }>;
 }) {
   const { slug, appSlug } = await params;
-  const { tab = "overview" } = await searchParams;
+  const { tab = "overview", build } = await searchParams;
   const { session, space } = await requireSpacePage(slug);
   let app = await getApp(space.id, appSlug);
   if (!app) notFound();
@@ -109,6 +110,13 @@ export default async function AppPage({
   const liveDeployId =
     deployments.find((d) => d.status === "succeeded" && d.image === app.image)
       ?.id ?? null;
+
+  // Post-deploy "Done" beat: the ?build= deployment finished and there's no
+  // build still in flight. Shows the live URL + an attach nudge if no DB yet.
+  const justDeployed =
+    !buildId &&
+    build &&
+    deployments.some((d) => d.id === build && d.status === "succeeded");
 
   return (
     <AppShell
@@ -178,6 +186,15 @@ export default async function AppPage({
             deploymentId={buildId}
           />
         </div>
+      )}
+
+      {justDeployed && (
+        <DeploySuccessBanner
+          host={autoHost}
+          attachHref={
+            app.attachedDbId ? undefined : `${basePath}?tab=settings`
+          }
+        />
       )}
 
       <AppTabs basePath={basePath} active={tab} />

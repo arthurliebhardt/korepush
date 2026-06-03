@@ -24,10 +24,12 @@ type EnvRow = { id: number; key: string; value: string; secret: boolean };
 export function CreateApp({
   spaceSlug,
   repos = [],
+  databases = [],
   embedded = false,
 }: {
   spaceSlug: string;
   repos?: Repo[];
+  databases?: { id: string; name: string }[];
   embedded?: boolean;
 }) {
   const router = useRouter();
@@ -47,6 +49,7 @@ export function CreateApp({
   const [buildCmd, setBuildCmd] = useState("");
   const [startCmd, setStartCmd] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [attachDbId, setAttachDbId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -58,6 +61,7 @@ export function CreateApp({
     setBuildCmd("");
     setStartCmd("");
     setShowAdvanced(false);
+    setAttachDbId("");
     setError(null);
   }
 
@@ -150,6 +154,7 @@ export function CreateApp({
         installCmd: showAdvanced && installCmd ? installCmd : undefined,
         buildCmd: showAdvanced && buildCmd ? buildCmd : undefined,
         startCmd: showAdvanced && startCmd ? startCmd : undefined,
+        attachDatabaseId: attachDbId || undefined,
       });
       if (!res.ok) return setError(res.error);
       router.push(
@@ -417,6 +422,29 @@ export function CreateApp({
               + Add variable
             </button>
           </div>
+
+          {databases.length > 0 && (
+            <div>
+              <div className="mb-1.5 text-sm font-medium">Database</div>
+              <select
+                className="input w-full sm:w-72"
+                value={attachDbId}
+                onChange={(e) => setAttachDbId(e.target.value)}
+              >
+                <option value="">Don&apos;t attach a database</option>
+                {databases.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    Attach {d.name}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-muted">
+                Its connection string is injected as{" "}
+                <code className="font-mono text-foreground">$DATABASE_URL</code>{" "}
+                before the first build.
+              </p>
+            </div>
+          )}
 
           {railpackOverridable && (
             <div>
