@@ -24,6 +24,7 @@ export type {
 export {
   listSpaces,
   listSpacesForUser,
+  listSpacesWithStats,
   getSpaceBySlug,
   createSpace,
   deleteSpace,
@@ -45,6 +46,7 @@ export {
   setAppEnv,
   rollbackDeployment,
   listDeployments,
+  lastDeployedAt,
   latestBuildingDeployment,
   addAppDomain,
   removeAppDomain,

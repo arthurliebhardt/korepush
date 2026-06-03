@@ -1,4 +1,4 @@
-import { and, desc, eq, or } from "drizzle-orm";
+import { and, desc, eq, inArray, or } from "drizzle-orm";
 import { db, schema } from "@korepush/db";
 import { k8sClients, managedLabels } from "./client";
 import { getSpaceBySlug, listSpaces } from "./spaces";
@@ -671,6 +671,24 @@ export async function appsForRepoPush(repoFullName: string, branch: string) {
         (r.gitRef || "main") === branch,
     )
     .map((r) => ({ spaceSlug: r.spaceSlug, appSlug: r.appSlug }));
+}
+
+/** Latest deployment timestamp per app, for "last deployed" on the space cards. */
+export async function lastDeployedAt(
+  appIds: string[],
+): Promise<Record<string, Date>> {
+  if (appIds.length === 0) return {};
+  const rows = await db
+    .select({
+      appId: schema.deployments.appId,
+      createdAt: schema.deployments.createdAt,
+    })
+    .from(schema.deployments)
+    .where(inArray(schema.deployments.appId, appIds))
+    .orderBy(desc(schema.deployments.createdAt));
+  const out: Record<string, Date> = {};
+  for (const r of rows) if (!(r.appId in out)) out[r.appId] = r.createdAt;
+  return out;
 }
 
 export async function listDeployments(appId: string) {

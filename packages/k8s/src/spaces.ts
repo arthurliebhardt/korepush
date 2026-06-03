@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { db, schema } from "@korepush/db";
 import { slugify } from "./util";
 import { createKoreSpace, deleteKoreSpace } from "./koreapp";
@@ -16,6 +16,40 @@ export async function listSpacesForUser(ownerId: string) {
     .from(schema.spaces)
     .where(eq(schema.spaces.ownerId, ownerId))
     .orderBy(schema.spaces.createdAt);
+}
+
+/**
+ * Spaces (owner-scoped when ownerId is given) plus app/database counts and a
+ * failed-app count for a rolled-up health dot. Counts come from the DB mirror —
+ * cheap enough for the dashboard list (no per-space k8s calls).
+ */
+export async function listSpacesWithStats(ownerId?: string) {
+  const spaces = ownerId
+    ? await listSpacesForUser(ownerId)
+    : await listSpaces();
+  if (spaces.length === 0) return [];
+  const ids = spaces.map((s) => s.id);
+  const [apps, dbs] = await Promise.all([
+    db
+      .select({ spaceId: schema.apps.spaceId, status: schema.apps.status })
+      .from(schema.apps)
+      .where(inArray(schema.apps.spaceId, ids)),
+    db
+      .select({ spaceId: schema.databases.spaceId })
+      .from(schema.databases)
+      .where(inArray(schema.databases.spaceId, ids)),
+  ]);
+  return spaces.map((s) => {
+    const own = apps.filter((a) => a.spaceId === s.id);
+    return {
+      ...s,
+      appCount: own.length,
+      failedApps: own.filter(
+        (a) => a.status === "failed" || a.status === "degraded",
+      ).length,
+      dbCount: dbs.filter((d) => d.spaceId === s.id).length,
+    };
+  });
 }
 
 export async function getSpaceBySlug(slug: string) {
