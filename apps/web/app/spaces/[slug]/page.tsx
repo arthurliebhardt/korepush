@@ -14,6 +14,7 @@ import { BlankEnvBadge } from "@/components/blank-env-badge";
 import { CreateApp } from "@/components/create-app";
 import { CreateDatabase } from "@/components/create-database";
 import { DatabaseCard } from "@/components/database-card";
+import { AppShellHeader } from "@/components/app-shell-header";
 import { blankEnvKeys } from "@/lib/env-warnings";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +25,7 @@ export default async function SpacePage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const { space } = await requireSpacePage(slug);
+  const { session, space } = await requireSpacePage(slug);
 
   // All independent of one another given `space` — fetch in parallel (Postgres,
   // k8s API, Prometheus, GitHub) instead of serially blocking first paint.
@@ -76,12 +77,13 @@ export default async function SpacePage({
   );
 
   return (
-    <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
-      <Link href="/" className="text-sm text-muted hover:text-foreground">
-        ← Spaces
-      </Link>
-
-      <div className="mt-4 mb-6 flex items-center justify-between">
+    <div className="flex flex-1 flex-col">
+      <AppShellHeader
+        email={session.user.email}
+        crumbs={[{ label: "Spaces", href: "/" }, { label: space.name }]}
+      />
+      <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
+      <div className="mb-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <h1 className="text-xl font-semibold">{space.name}</h1>
           <StatusBadge status={space.status} />
@@ -207,6 +209,7 @@ export default async function SpacePage({
           ))}
         </ul>
       )}
+      </main>
     </div>
   );
 }

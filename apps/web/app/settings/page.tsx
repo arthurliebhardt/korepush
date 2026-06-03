@@ -1,14 +1,14 @@
-import Link from "next/link";
 import { requireUser } from "@/lib/session";
 import { getControlPlaneInfo } from "@korepush/k8s";
 import { DomainSettings } from "@/components/domain-settings";
+import { AppShellHeader } from "@/components/app-shell-header";
 import { getAppConfig } from "@/lib/github/config";
 import { listInstallations } from "@/lib/github/app";
 
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
-  await requireUser();
+  const session = await requireUser();
 
   let hosts: string[] = [];
   let unavailable: string | null = null;
@@ -24,12 +24,13 @@ export default async function SettingsPage() {
   const installations = ghApp ? await listInstallations().catch(() => []) : [];
 
   return (
-    <div className="mx-auto w-full max-w-2xl flex-1 px-6 py-8">
-      <Link href="/" className="text-sm text-muted hover:text-foreground">
-        ← Spaces
-      </Link>
-
-      <div className="mt-4 mb-6">
+    <div className="flex flex-1 flex-col">
+      <AppShellHeader
+        email={session.user.email}
+        crumbs={[{ label: "Settings" }]}
+      />
+      <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-8">
+      <div className="mb-6">
         <h1 className="text-xl font-semibold">Settings</h1>
         <p className="text-sm text-muted">
           Domain, GitHub &amp; access for this instance.
@@ -98,6 +99,7 @@ export default async function SettingsPage() {
           <DomainSettings hosts={hosts} />
         )}
       </div>
+      </main>
     </div>
   );
 }
