@@ -4,6 +4,7 @@ import { requireSpacePage } from "@/lib/session";
 import { AppShell } from "@/components/app-shell";
 import {
   getApp,
+  listApps,
   latestBuildingDeployment,
   finalizeBuild,
   listDatabases,
@@ -25,6 +26,7 @@ import { AppMetrics } from "@/components/app-metrics";
 import { AppDiagnostics } from "@/components/app-diagnostics";
 import { AppEnv } from "@/components/app-env";
 import { BuildLogs } from "@/components/build-logs";
+import { DeploySuccessBanner } from "@/components/deploy-success-banner";
 import { RedeployButton } from "@/components/redeploy-button";
 import { RollbackButton } from "@/components/rollback-button";
 import { AttachDatabase } from "@/components/attach-database";
@@ -40,10 +42,10 @@ export default async function AppPage({
   searchParams,
 }: {
   params: Promise<{ slug: string; appSlug: string }>;
-  searchParams: Promise<{ tab?: string }>;
+  searchParams: Promise<{ tab?: string; build?: string }>;
 }) {
   const { slug, appSlug } = await params;
-  const { tab = "overview" } = await searchParams;
+  const { tab = "overview", build } = await searchParams;
   const { session, space } = await requireSpacePage(slug);
   let app = await getApp(space.id, appSlug);
   if (!app) notFound();
@@ -110,13 +112,64 @@ export default async function AppPage({
     deployments.find((d) => d.status === "succeeded" && d.image === app.image)
       ?.id ?? null;
 
+  // Post-deploy "Done" beat: the ?build= deployment finished and there's no
+  // build still in flight. Shows the live URL + an attach nudge if no DB yet.
+  const justDeployed =
+    !buildId &&
+    build &&
+    deployments.some((d) => d.id === build && d.status === "succeeded");
+
+  // Lateral nav for the breadcrumb "app ▾": every app in the space, with
+  // multi-environment projects expanded per environment; current one marked.
+  const spaceApps = await listApps(space.id);
+  const appGroups = new Map<string, typeof spaceApps>();
+  for (const a of spaceApps) {
+    const g = appGroups.get(a.projectId);
+    if (g) g.push(a);
+    else appGroups.set(a.projectId, [a]);
+  }
+  const appSwitcher: {
+    label: string;
+    href: string;
+    active: boolean;
+    sub?: string;
+  }[] = [];
+  for (const g of appGroups.values()) {
+    if (g.length === 1) {
+      appSwitcher.push({
+        label: g[0].name,
+        href: `/spaces/${space.slug}/apps/${g[0].slug}`,
+        active: g[0].slug === app.slug,
+      });
+    } else {
+      const root = g.find((x) => x.environment === "prod") ?? g[0];
+      for (const e of g) {
+        appSwitcher.push({
+          label: `${root.name} · ${e.environment}`,
+          href: `/spaces/${space.slug}/apps/${e.slug}`,
+          active: e.slug === app.slug,
+          sub: e.gitRef ?? undefined,
+        });
+      }
+    }
+  }
+
   return (
     <AppShell
       email={session.user.email}
+      userId={session.user.id}
+      isAdmin={(session.user as { role?: string }).role === "admin"}
+      space={{ slug: space.slug, name: space.name }}
       crumbs={[
         { label: "Spaces", href: "/" },
         { label: space.name, href: `/spaces/${space.slug}` },
-        { label: app.name },
+        { label: "Apps", href: `/spaces/${space.slug}/apps` },
+        {
+          label: app.name,
+          switcher: appSwitcher,
+          switcherFooterHref: `/spaces/${space.slug}/apps`,
+          switcherFooterLabel: "View all apps",
+        },
       ]}
     >
       <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
@@ -174,6 +227,15 @@ export default async function AppPage({
             deploymentId={buildId}
           />
         </div>
+      )}
+
+      {justDeployed && (
+        <DeploySuccessBanner
+          host={autoHost}
+          attachHref={
+            app.attachedDbId ? undefined : `${basePath}?tab=settings`
+          }
+        />
       )}
 
       <AppTabs basePath={basePath} active={tab} />

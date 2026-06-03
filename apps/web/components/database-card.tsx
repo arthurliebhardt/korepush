@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { StatusBadge } from "@/components/status-badge";
 import { toast } from "@/components/ui/toast";
@@ -14,6 +15,7 @@ export function DatabaseCard({
   status,
   connectionUri,
   host,
+  usedBy = [],
 }: {
   spaceSlug: string;
   slug: string;
@@ -21,6 +23,7 @@ export function DatabaseCard({
   status: string;
   connectionUri: string | null;
   host: string | null;
+  usedBy?: string[];
 }) {
   const router = useRouter();
   const [copied, setCopied] = useState(false);
@@ -30,7 +33,12 @@ export function DatabaseCard({
     <div className="card space-y-3">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="font-medium">{name}</span>
+          <Link
+            href={`/spaces/${spaceSlug}/databases/${slug}`}
+            className="font-medium transition-colors hover:text-muted"
+          >
+            {name}
+          </Link>
           <span className="text-xs text-muted">postgres</span>
           <StatusBadge status={status} />
         </div>
@@ -83,6 +91,23 @@ export function DatabaseCard({
         </div>
       ) : (
         <p className="text-xs text-muted">Provisioning Postgres…</p>
+      )}
+
+      {usedBy.length > 0 ? (
+        <p className="text-xs text-fg-subtle">
+          Used by{" "}
+          <span className="text-muted">{usedBy.join(", ")}</span>
+        </p>
+      ) : (
+        <p className="text-xs text-fg-subtle">
+          Not attached —{" "}
+          <Link
+            href={`/spaces/${spaceSlug}/databases/${slug}`}
+            className="text-muted underline-offset-2 hover:underline"
+          >
+            attach to an app
+          </Link>
+        </p>
       )}
     </div>
   );

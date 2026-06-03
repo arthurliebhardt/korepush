@@ -1,30 +1,47 @@
 import Link from "next/link";
-import { clusterReachable } from "@korepush/k8s";
-import { Brand } from "@/components/brand";
+import {
+  CrumbSwitcher,
+  type CrumbSwitcherItem,
+} from "@/components/crumb-switcher";
 
-export type Crumb = { label: string; href?: string };
+export type Crumb = {
+  label: string;
+  href?: string;
+  // When present, this crumb renders as a switcher popover (e.g. the app ▾).
+  switcher?: CrumbSwitcherItem[];
+  switcherFooterHref?: string;
+  switcherFooterLabel?: string;
+};
 
-// Top bar for the content column: breadcrumb trail (left) + cluster status
-// (right). Brand/account/search live in the sidebar on desktop; the brand shows
-// here only on mobile (where the sidebar is hidden).
-export async function AppShellHeader({ crumbs = [] }: { crumbs?: Crumb[] }) {
-  const clusterOk = await clusterReachable().catch(() => false);
-
+// Slim breadcrumb seam for the content column: a second, always-visible
+// "where am I" trail (the sidebar switcher is the primary one). The mobile-nav
+// hamburger sits to its left; cluster status now lives in the sidebar.
+export function AppShellHeader({
+  crumbs = [],
+  mobileNav,
+}: {
+  crumbs?: Crumb[];
+  mobileNav?: React.ReactNode;
+}) {
   return (
-    <header className="sticky top-0 z-20 flex h-14 items-center justify-between border-b border-border bg-bg-subtle/80 px-5 backdrop-blur">
+    <header className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b border-border bg-bg-subtle/80 px-4 backdrop-blur">
+      {mobileNav}
       <nav className="flex min-w-0 items-center gap-2 text-sm">
-        <span className="md:hidden">
-          <Brand />
-        </span>
         {crumbs.map((c, i) => (
           <span key={i} className="flex min-w-0 items-center gap-2">
-            <span
-              className={`text-fg-faint ${i === 0 ? "md:hidden" : ""}`}
-              aria-hidden
-            >
-              /
-            </span>
-            {c.href ? (
+            {i > 0 && (
+              <span className="text-fg-faint" aria-hidden>
+                /
+              </span>
+            )}
+            {c.switcher ? (
+              <CrumbSwitcher
+                label={c.label}
+                items={c.switcher}
+                footerHref={c.switcherFooterHref}
+                footerLabel={c.switcherFooterLabel}
+              />
+            ) : c.href ? (
               <Link
                 href={c.href}
                 className="truncate text-muted transition-colors hover:text-foreground"
@@ -39,19 +56,6 @@ export async function AppShellHeader({ crumbs = [] }: { crumbs?: Crumb[] }) {
           </span>
         ))}
       </nav>
-
-      <span
-        className={`hidden shrink-0 items-center gap-1.5 text-xs sm:inline-flex ${
-          clusterOk ? "text-success-fg" : "text-danger-fg"
-        }`}
-        title={clusterOk ? "Cluster connected" : "Cluster unreachable"}
-      >
-        <span
-          className={`size-1.5 rounded-full bg-current ${clusterOk ? "" : "animate-pulse"}`}
-          aria-hidden
-        />
-        {clusterOk ? "connected" : "unreachable"}
-      </span>
     </header>
   );
 }
