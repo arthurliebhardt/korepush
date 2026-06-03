@@ -24,9 +24,11 @@ type EnvRow = { id: number; key: string; value: string; secret: boolean };
 export function CreateApp({
   spaceSlug,
   repos = [],
+  embedded = false,
 }: {
   spaceSlug: string;
   repos?: Repo[];
+  embedded?: boolean;
 }) {
   const router = useRouter();
   const nextId = useRef(0);
@@ -57,6 +59,21 @@ export function CreateApp({
     setStartCmd("");
     setShowAdvanced(false);
     setError(null);
+  }
+
+  // Embedded (full-page /new) mode renders the form directly and returns to the
+  // Apps list on cancel; inline mode collapses back to the trigger button.
+  function cancel() {
+    if (embedded) router.push(`/spaces/${spaceSlug}/apps`);
+    else {
+      setOpen(false);
+      reset();
+    }
+  }
+  function finishImage() {
+    if (embedded) router.push(`/spaces/${spaceSlug}/apps`);
+    else setOpen(false);
+    router.refresh();
   }
 
   function pickRepo(fullName: string) {
@@ -114,8 +131,7 @@ export function CreateApp({
         port: Number(port) || 80,
       });
       if (!res.ok) return setError(res.error);
-      setOpen(false);
-      router.refresh();
+      finishImage();
     });
   }
 
@@ -142,7 +158,7 @@ export function CreateApp({
     });
   }
 
-  if (!open) {
+  if (!open && !embedded) {
     return (
       <button className="btn-primary" onClick={() => setOpen(true)}>
         Deploy app
@@ -218,10 +234,7 @@ export function CreateApp({
             <button
               type="button"
               className="btn-ghost"
-              onClick={() => {
-                setOpen(false);
-                reset();
-              }}
+              onClick={cancel}
             >
               Cancel
             </button>
@@ -297,10 +310,7 @@ export function CreateApp({
             <button
               type="button"
               className="btn-ghost"
-              onClick={() => {
-                setOpen(false);
-                reset();
-              }}
+              onClick={cancel}
             >
               Cancel
             </button>

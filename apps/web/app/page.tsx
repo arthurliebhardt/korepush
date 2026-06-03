@@ -21,7 +21,12 @@ export default async function DashboardPage() {
   const onboarding = spaces.length === 0;
 
   return (
-    <AppShell email={session.user.email} crumbs={[{ label: "Spaces" }]}>
+    <AppShell
+      email={session.user.email}
+      userId={session.user.id}
+      isAdmin={isAdmin}
+      crumbs={[{ label: "Spaces" }]}
+    >
       <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
         {onboarding ? (
           <Onboarding

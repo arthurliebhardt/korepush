@@ -113,9 +113,13 @@ export default async function AppPage({
   return (
     <AppShell
       email={session.user.email}
+      userId={session.user.id}
+      isAdmin={(session.user as { role?: string }).role === "admin"}
+      space={{ slug: space.slug, name: space.name }}
       crumbs={[
         { label: "Spaces", href: "/" },
         { label: space.name, href: `/spaces/${space.slug}` },
+        { label: "Apps", href: `/spaces/${space.slug}/apps` },
         { label: app.name },
       ]}
     >

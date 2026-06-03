@@ -70,3 +70,54 @@ export function SearchIcon() {
     </svg>
   );
 }
+
+export function LayersIcon() {
+  return (
+    <svg {...base} aria-hidden>
+      <path d="m12 2 9 5-9 5-9-5 9-5z" />
+      <path d="m3 12 9 5 9-5" />
+      <path d="m3 17 9 5 9-5" />
+    </svg>
+  );
+}
+
+export function ChevronDownIcon() {
+  return (
+    <svg {...base} width={14} height={14} aria-hidden>
+      <path d="m6 9 6 6 6-6" />
+    </svg>
+  );
+}
+
+export function ChevronUpDownIcon() {
+  return (
+    <svg {...base} width={14} height={14} aria-hidden>
+      <path d="m8 9 4-4 4 4" />
+      <path d="m16 15-4 4-4-4" />
+    </svg>
+  );
+}
+
+export function PlusIcon() {
+  return (
+    <svg {...base} width={14} height={14} aria-hidden>
+      <path d="M12 5v14M5 12h14" />
+    </svg>
+  );
+}
+
+export function CheckIcon() {
+  return (
+    <svg {...base} width={14} height={14} aria-hidden>
+      <path d="m20 6-11 11-5-5" />
+    </svg>
+  );
+}
+
+export function MenuIcon() {
+  return (
+    <svg {...base} aria-hidden>
+      <path d="M3 6h18M3 12h18M3 18h18" />
+    </svg>
+  );
+}
