@@ -29,7 +29,6 @@ export default async function SpacePage({
 }) {
   const { slug } = await params;
   const { session, space } = await requireSpacePage(slug);
-  const isAdmin = (session.user as { role?: string }).role === "admin";
 
   // All independent of one another given `space` — fetch in parallel (Postgres,
   // k8s API, Prometheus, GitHub) instead of serially blocking first paint.
@@ -84,9 +83,6 @@ export default async function SpacePage({
   return (
     <AppShell
       email={session.user.email}
-      isAdmin={isAdmin}
-      userId={session.user.id}
-      activeSpaceSlug={space.slug}
       crumbs={[{ label: "Spaces", href: "/" }, { label: space.name }]}
     >
       <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">

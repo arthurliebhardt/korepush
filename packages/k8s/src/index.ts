@@ -90,5 +90,10 @@ export type {
   MetricSeries,
   MetricPoint,
 } from "./metrics";
+export {
+  listAllDeployments,
+  listAllDatabases,
+  listAllDomains,
+} from "./overview";
 export { slugify } from "./util";
 export { getKoreAppPhase, listKoreAppPhases, phaseToStatus } from "./koreapp";
