@@ -45,7 +45,6 @@ export default async function AppPage({
   const { slug, appSlug } = await params;
   const { tab = "overview" } = await searchParams;
   const { session, space } = await requireSpacePage(slug);
-  const isAdmin = (session.user as { role?: string }).role === "admin";
   let app = await getApp(space.id, appSlug);
   if (!app) notFound();
 
@@ -114,9 +113,6 @@ export default async function AppPage({
   return (
     <AppShell
       email={session.user.email}
-      isAdmin={isAdmin}
-      userId={session.user.id}
-      activeSpaceSlug={space.slug}
       crumbs={[
         { label: "Spaces", href: "/" },
         { label: space.name, href: `/spaces/${space.slug}` },
