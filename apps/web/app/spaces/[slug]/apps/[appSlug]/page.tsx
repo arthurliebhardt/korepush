@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireSpacePage } from "@/lib/session";
+import { AppShellHeader } from "@/components/app-shell-header";
 import {
   getApp,
   latestBuildingDeployment,
@@ -36,7 +37,7 @@ export default async function AppPage({
   params: Promise<{ slug: string; appSlug: string }>;
 }) {
   const { slug, appSlug } = await params;
-  const { space } = await requireSpacePage(slug);
+  const { session, space } = await requireSpacePage(slug);
   let app = await getApp(space.id, appSlug);
   if (!app) notFound();
 
@@ -96,16 +97,18 @@ export default async function AppPage({
   }));
 
   return (
-    <div className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
-      <Link
-        href={`/spaces/${space.slug}`}
-        className="text-sm text-muted hover:text-foreground"
-      >
-        ← {space.name}
-      </Link>
-
+    <div className="flex flex-1 flex-col">
+      <AppShellHeader
+        email={session.user.email}
+        crumbs={[
+          { label: "Spaces", href: "/" },
+          { label: space.name, href: `/spaces/${space.slug}` },
+          { label: app.name },
+        ]}
+      />
+      <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
       {isGit && (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {envs.map((e) => {
             const active = e.slug === app.slug;
             return (
@@ -231,6 +234,7 @@ export default async function AppPage({
           )}
         </div>
       )}
+      </main>
     </div>
   );
 }
