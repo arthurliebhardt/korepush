@@ -1,6 +1,17 @@
 import Link from "next/link";
+import {
+  CrumbSwitcher,
+  type CrumbSwitcherItem,
+} from "@/components/crumb-switcher";
 
-export type Crumb = { label: string; href?: string };
+export type Crumb = {
+  label: string;
+  href?: string;
+  // When present, this crumb renders as a switcher popover (e.g. the app ▾).
+  switcher?: CrumbSwitcherItem[];
+  switcherFooterHref?: string;
+  switcherFooterLabel?: string;
+};
 
 // Slim breadcrumb seam for the content column: a second, always-visible
 // "where am I" trail (the sidebar switcher is the primary one). The mobile-nav
@@ -23,7 +34,14 @@ export function AppShellHeader({
                 /
               </span>
             )}
-            {c.href ? (
+            {c.switcher ? (
+              <CrumbSwitcher
+                label={c.label}
+                items={c.switcher}
+                footerHref={c.switcherFooterHref}
+                footerLabel={c.switcherFooterLabel}
+              />
+            ) : c.href ? (
               <Link
                 href={c.href}
                 className="truncate text-muted transition-colors hover:text-foreground"

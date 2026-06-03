@@ -4,6 +4,7 @@ import { requireSpacePage } from "@/lib/session";
 import { AppShell } from "@/components/app-shell";
 import {
   getApp,
+  listApps,
   latestBuildingDeployment,
   finalizeBuild,
   listDatabases,
@@ -118,6 +119,41 @@ export default async function AppPage({
     build &&
     deployments.some((d) => d.id === build && d.status === "succeeded");
 
+  // Lateral nav for the breadcrumb "app ▾": every app in the space, with
+  // multi-environment projects expanded per environment; current one marked.
+  const spaceApps = await listApps(space.id);
+  const appGroups = new Map<string, typeof spaceApps>();
+  for (const a of spaceApps) {
+    const g = appGroups.get(a.projectId);
+    if (g) g.push(a);
+    else appGroups.set(a.projectId, [a]);
+  }
+  const appSwitcher: {
+    label: string;
+    href: string;
+    active: boolean;
+    sub?: string;
+  }[] = [];
+  for (const g of appGroups.values()) {
+    if (g.length === 1) {
+      appSwitcher.push({
+        label: g[0].name,
+        href: `/spaces/${space.slug}/apps/${g[0].slug}`,
+        active: g[0].slug === app.slug,
+      });
+    } else {
+      const root = g.find((x) => x.environment === "prod") ?? g[0];
+      for (const e of g) {
+        appSwitcher.push({
+          label: `${root.name} · ${e.environment}`,
+          href: `/spaces/${space.slug}/apps/${e.slug}`,
+          active: e.slug === app.slug,
+          sub: e.gitRef ?? undefined,
+        });
+      }
+    }
+  }
+
   return (
     <AppShell
       email={session.user.email}
@@ -128,7 +164,12 @@ export default async function AppPage({
         { label: "Spaces", href: "/" },
         { label: space.name, href: `/spaces/${space.slug}` },
         { label: "Apps", href: `/spaces/${space.slug}/apps` },
-        { label: app.name },
+        {
+          label: app.name,
+          switcher: appSwitcher,
+          switcherFooterHref: `/spaces/${space.slug}/apps`,
+          switcherFooterLabel: "View all apps",
+        },
       ]}
     >
       <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
