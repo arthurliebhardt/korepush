@@ -102,6 +102,12 @@ export default async function AppPage({
     statusMessage: d.statusMessage,
     useStaging: d.useStaging,
   }));
+  // The live deployment = most recent succeeded one whose image is deployed
+  // (deployments are newest-first). Marks exactly one row, vs flagging every
+  // row that happens to share the current image.
+  const liveDeployId =
+    deployments.find((d) => d.status === "succeeded" && d.image === app.image)
+      ?.id ?? null;
 
   return (
     <div className="flex flex-1 flex-col">
@@ -182,39 +188,70 @@ export default async function AppPage({
         />
       ) : tab === "deployments" ? (
         deployments.length > 0 ? (
-          <ul className="space-y-2">
-            {deployments.map((d) => {
-              const tag = d.image?.split(":").pop() ?? "—";
-              const isCurrent = !!d.image && d.image === app.image;
-              const canRollback =
-                d.status === "succeeded" && !!d.image && !isCurrent;
-              return (
-                <li
-                  key={d.id}
-                  className="card flex items-center justify-between py-3"
-                >
-                  <div className="flex items-center gap-3">
-                    <StatusBadge status={d.status} />
-                    <span className="font-mono text-xs">{tag}</span>
-                    <span className="text-xs text-muted">{d.trigger}</span>
-                    <span className="text-xs text-muted">
-                      {timeAgo(d.createdAt)}
-                    </span>
-                  </div>
-                  {isCurrent ? (
-                    <span className="text-xs text-success-fg">Current</span>
-                  ) : canRollback ? (
-                    <RollbackButton
-                      spaceSlug={space.slug}
-                      appSlug={app.slug}
-                      deploymentId={d.id}
-                      tag={tag}
-                    />
-                  ) : null}
-                </li>
-              );
-            })}
-          </ul>
+          <div className="panel overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-border text-xs text-muted">
+                  <th className="px-4 py-2.5 font-medium">Status</th>
+                  <th className="px-4 py-2.5 font-medium">Commit / tag</th>
+                  <th className="px-4 py-2.5 font-medium">Trigger</th>
+                  <th className="px-4 py-2.5 font-medium">Duration</th>
+                  <th className="px-4 py-2.5 font-medium">Age</th>
+                  <th className="px-4 py-2.5" />
+                </tr>
+              </thead>
+              <tbody>
+                {deployments.map((d) => {
+                  const tag = d.image?.split(":").pop() ?? "—";
+                  const isLive = d.id === liveDeployId;
+                  const canRollback =
+                    d.status === "succeeded" && !!d.image && !isLive;
+                  return (
+                    <tr
+                      key={d.id}
+                      className="border-b border-border-subtle last:border-0"
+                    >
+                      <td className="px-4 py-2.5">
+                        <StatusBadge status={d.status} />
+                      </td>
+                      <td className="px-4 py-2.5 font-mono text-xs">
+                        {d.commitSha ? (
+                          <span className="text-foreground">
+                            {d.commitSha.slice(0, 7)}
+                          </span>
+                        ) : (
+                          <span className="text-muted">{tag}</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-muted">
+                        {d.trigger}
+                      </td>
+                      <td className="px-4 py-2.5 text-xs tabular-nums text-muted">
+                        {fmtDuration(d.createdAt, d.finishedAt)}
+                      </td>
+                      <td className="px-4 py-2.5 text-xs text-muted">
+                        {timeAgo(d.createdAt)}
+                      </td>
+                      <td className="px-4 py-2.5 text-right">
+                        {isLive ? (
+                          <span className="badge bg-success/15 text-success-fg">
+                            Live
+                          </span>
+                        ) : canRollback ? (
+                          <RollbackButton
+                            spaceSlug={space.slug}
+                            appSlug={app.slug}
+                            deploymentId={d.id}
+                            tag={tag}
+                          />
+                        ) : null}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         ) : (
           <EmptyState
             title="No deployments yet"
@@ -263,6 +300,15 @@ export default async function AppPage({
       </main>
     </div>
   );
+}
+
+function fmtDuration(start: Date, end: Date | null): string {
+  if (!end) return "—";
+  const s = Math.round(
+    (new Date(end).getTime() - new Date(start).getTime()) / 1000,
+  );
+  if (s < 60) return `${s}s`;
+  return `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
 function timeAgo(date: Date): string {
