@@ -17,6 +17,15 @@ export type ComposeAppPlan = {
   replicas?: number;
   cpuLimit?: string;
   memoryLimit?: string;
+  command?: string[];
+  args?: string[];
+  healthcheck?: {
+    test: string[];
+    interval?: number;
+    timeout?: number;
+    retries?: number;
+    startPeriod?: number;
+  };
   attachDatabaseService?: string; // compose name of the postgres it should use
   warnings: string[];
 };
@@ -81,6 +90,51 @@ function containerPort(entry: unknown): number | null {
   const last = segs[segs.length - 1];
   const n = Number(last);
   return Number.isFinite(n) ? n : null;
+}
+
+// compose command/entrypoint: array → exec form (as-is); string → shell form.
+function toCmd(raw: unknown): string[] | undefined {
+  if (Array.isArray(raw)) {
+    const a = raw.filter((x) => typeof x === "string");
+    return a.length ? a : undefined;
+  }
+  if (typeof raw === "string" && raw.trim()) return ["sh", "-c", raw];
+  return undefined;
+}
+
+// compose healthcheck.test → an exec command. ["CMD", ...] → the rest;
+// ["CMD-SHELL", s] / string → ["sh","-c",s]; ["NONE"] → disabled sentinel.
+function toHealthTest(raw: unknown): string[] | undefined {
+  if (typeof raw === "string" && raw.trim()) return ["sh", "-c", raw];
+  if (Array.isArray(raw)) {
+    const a = raw.filter((x) => typeof x === "string");
+    if (!a.length) return undefined;
+    if (a[0] === "NONE") return ["NONE"];
+    if (a[0] === "CMD") return a.slice(1);
+    if (a[0] === "CMD-SHELL") return ["sh", "-c", a.slice(1).join(" ")];
+    return a;
+  }
+  return undefined;
+}
+
+// compose duration ("30s", "1m30s", "100ms") → whole seconds (min 1).
+function durationSec(raw: unknown): number | undefined {
+  if (typeof raw === "number") return Math.max(1, Math.round(raw));
+  if (typeof raw !== "string") return undefined;
+  let total = 0;
+  let matched = false;
+  for (const m of raw.matchAll(/(\d+(?:\.\d+)?)\s*(h|m|s|ms|us|ns)/g)) {
+    matched = true;
+    const n = Number(m[1]);
+    const unit = m[2];
+    total +=
+      unit === "h" ? n * 3600 : unit === "m" ? n * 60 : unit === "s" ? n : n / 1000;
+  }
+  if (!matched) {
+    const n = Number(raw);
+    return Number.isFinite(n) ? Math.max(1, Math.round(n)) : undefined;
+  }
+  return Math.max(1, Math.round(total));
 }
 
 function dependsList(raw: unknown): string[] {
@@ -230,8 +284,20 @@ export function parseComposePlan(yamlText: string): ComposePlan {
     }
 
     if (svc.volumes) w.push("`volumes` are ignored — this app's storage is ephemeral (lost on restart).");
-    if (svc.command || svc.entrypoint) w.push("`command`/`entrypoint` overrides are ignored — the image's own entrypoint runs.");
-    if (svc.healthcheck) w.push("`healthcheck` is ignored — korepush uses its own readiness checks.");
+    const command = toCmd(svc.entrypoint); // ENTRYPOINT override
+    const args = toCmd(svc.command); // CMD override
+    let healthcheck: ComposeAppPlan["healthcheck"];
+    const hcRaw = (svc.healthcheck ?? {}) as Record<string, unknown>;
+    const hcTest = toHealthTest(hcRaw.test);
+    if (hcTest && hcTest[0] !== "NONE") {
+      healthcheck = {
+        test: hcTest,
+        interval: durationSec(hcRaw.interval),
+        timeout: durationSec(hcRaw.timeout),
+        retries: typeof hcRaw.retries === "number" ? hcRaw.retries : undefined,
+        startPeriod: durationSec(hcRaw.start_period),
+      };
+    }
     const deploy = (svc.deploy ?? {}) as Record<string, unknown>;
     const limits = ((deploy.resources as Record<string, unknown>)?.limits ??
       {}) as Record<string, unknown>;
@@ -258,6 +324,9 @@ export function parseComposePlan(yamlText: string): ComposePlan {
       replicas,
       cpuLimit,
       memoryLimit,
+      command,
+      args,
+      healthcheck,
       attachDatabaseService,
       warnings: w,
     });

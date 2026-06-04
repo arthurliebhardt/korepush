@@ -140,6 +140,17 @@ export const apps = pgTable("apps", {
   // k8s quantity strings, e.g. "1", "500m" / "512Mi", "1Gi".
   cpuLimit: text("cpu_limit"),
   memoryLimit: text("memory_limit"),
+  // Optional entrypoint/command overrides (k8s container.command/args) + an
+  // exec healthcheck (compose healthcheck → liveness/readiness probe).
+  command: jsonb("command").$type<string[]>(),
+  args: jsonb("args").$type<string[]>(),
+  healthcheck: jsonb("healthcheck").$type<{
+    test: string[];
+    interval?: number;
+    timeout?: number;
+    retries?: number;
+    startPeriod?: number;
+  }>(),
   // Plain (non-secret) env vars, inlined into the Deployment pod spec.
   env: jsonb("env").$type<Record<string, string>>().default({}).notNull(),
   // Names of secret env vars; their VALUES live only in the per-app k8s Secret

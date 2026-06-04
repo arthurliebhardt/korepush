@@ -167,6 +167,9 @@ export async function importComposeAction(
         port: app.port,
         cpuLimit: app.cpuLimit,
         memoryLimit: app.memoryLimit,
+        command: app.command,
+        args: app.args,
+        healthcheck: app.healthcheck,
       });
       if (split) await setAppEnv(spaceSlug, created.slug, split);
       if (app.attachDatabaseService) {

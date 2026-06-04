@@ -110,11 +110,23 @@ export async function reconcile(namespace: string, name: string): Promise<void> 
     }
   }
   const envFrom = (spec.envFrom ?? []).map((f) => ({ secretRef: { name: f.secretRef.name } }));
+  const hc = spec.healthcheck;
+  const probe =
+    hc?.test?.length && hc.test[0] !== "NONE"
+      ? {
+          exec: { command: hc.test },
+          periodSeconds: hc.interval ?? 30,
+          timeoutSeconds: hc.timeout ?? 5,
+          failureThreshold: hc.retries ?? 3,
+        }
+      : undefined;
   const container = {
     name,
     image: spec.image,
     ports: [{ containerPort: spec.port }],
     env,
+    ...(spec.command?.length ? { command: spec.command } : {}),
+    ...(spec.args?.length ? { args: spec.args } : {}),
     ...(envFrom.length ? { envFrom } : {}),
     resources: {
       requests: { cpu: "50m", memory: "64Mi" },
@@ -123,6 +135,12 @@ export async function reconcile(namespace: string, name: string): Promise<void> 
         memory: spec.resources?.memory ?? "256Mi",
       },
     },
+    ...(probe
+      ? {
+          readinessProbe: probe,
+          livenessProbe: { ...probe, initialDelaySeconds: hc?.startPeriod ?? 10 },
+        }
+      : {}),
   };
   const replicas = spec.replicas ?? 1;
   // A restart stamp on the CR (bumped by the control plane on env/secret change)

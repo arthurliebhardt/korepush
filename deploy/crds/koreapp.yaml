@@ -60,6 +60,22 @@ spec:
                   properties:
                     cpu: { type: string, maxLength: 32 }
                     memory: { type: string, maxLength: 32 }
+                command:
+                  type: array
+                  items: { type: string }
+                args:
+                  type: array
+                  items: { type: string }
+                healthcheck:
+                  type: object
+                  properties:
+                    test:
+                      type: array
+                      items: { type: string }
+                    interval: { type: integer }
+                    timeout: { type: integer }
+                    retries: { type: integer }
+                    startPeriod: { type: integer }
                 env:
                   type: array
                   x-kubernetes-list-type: map

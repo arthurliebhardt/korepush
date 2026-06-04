@@ -16,6 +16,13 @@ export type EnvVarSpec = {
   value?: string;
   secretKeyRef?: { name: string; key: string };
 };
+export type HealthcheckSpec = {
+  test: string[]; // exec command (already resolved from compose CMD/CMD-SHELL)
+  interval?: number; // seconds
+  timeout?: number;
+  retries?: number;
+  startPeriod?: number;
+};
 export type KoreAppSpec = {
   source: "image" | "git";
   image?: string;
@@ -24,6 +31,9 @@ export type KoreAppSpec = {
   // Container resource limits (k8s quantity strings); operator applies defaults
   // when a field is absent.
   resources?: { cpu?: string; memory?: string };
+  command?: string[]; // overrides the image ENTRYPOINT
+  args?: string[]; // overrides the image CMD
+  healthcheck?: HealthcheckSpec;
   env?: EnvVarSpec[];
   envFrom?: { secretRef: { name: string } }[];
   domains?: { host: string; staging?: boolean }[];
@@ -40,6 +50,9 @@ type AppLike = {
   replicas: number;
   cpuLimit: string | null;
   memoryLimit: string | null;
+  command: string[] | null;
+  args: string[] | null;
+  healthcheck: HealthcheckSpec | null;
   env: Record<string, string> | null;
   secretKeys: string[] | null;
   dbEnvVar: string;
@@ -66,6 +79,9 @@ export function buildKoreAppSpec(
     if (app.cpuLimit) spec.resources.cpu = app.cpuLimit;
     if (app.memoryLimit) spec.resources.memory = app.memoryLimit;
   }
+  if (app.command?.length) spec.command = app.command;
+  if (app.args?.length) spec.args = app.args;
+  if (app.healthcheck?.test?.length) spec.healthcheck = app.healthcheck;
   const env = envSpec(app.env);
   if (env.length) spec.env = env;
   if (app.secretKeys?.length) spec.envFrom = [{ secretRef: { name: `${app.slug}-env` } }];

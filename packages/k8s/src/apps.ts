@@ -60,6 +60,15 @@ export type CreateAppInput = {
   env?: Record<string, string>;
   cpuLimit?: string;
   memoryLimit?: string;
+  command?: string[];
+  args?: string[];
+  healthcheck?: {
+    test: string[];
+    interval?: number;
+    timeout?: number;
+    retries?: number;
+    startPeriod?: number;
+  };
 };
 
 export async function createApp(input: CreateAppInput) {
@@ -81,6 +90,9 @@ export async function createApp(input: CreateAppInput) {
       env: input.env ?? {},
       cpuLimit: input.cpuLimit ?? null,
       memoryLimit: input.memoryLimit ?? null,
+      command: input.command ?? null,
+      args: input.args ?? null,
+      healthcheck: input.healthcheck ?? null,
       status: "provisioning",
     })
     .returning()

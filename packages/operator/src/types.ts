@@ -10,6 +10,15 @@ export type KoreAppSpec = {
   port: number;
   replicas?: number;
   resources?: { cpu?: string; memory?: string };
+  command?: string[];
+  args?: string[];
+  healthcheck?: {
+    test: string[];
+    interval?: number;
+    timeout?: number;
+    retries?: number;
+    startPeriod?: number;
+  };
   env?: EnvVarSpec[];
   envFrom?: { secretRef: { name: string } }[];
   domains?: { host: string; staging?: boolean }[];
