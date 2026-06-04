@@ -60,7 +60,6 @@ export default async function SpaceDatabasesPage({
                   slug={d.slug}
                   name={d.name}
                   status={d.status}
-                  connectionUri={d.info.connectionUri}
                   host={d.info.host}
                   usedBy={usedByOf(d.id)}
                 />
