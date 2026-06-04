@@ -177,6 +177,117 @@ export async function getAppMetrics(
   };
 }
 
+export type SpaceMetricsSeries = {
+  ok: boolean;
+  windowSec: number;
+  cpu: MetricPoint[]; // summed cores across the namespace (range)
+  memory: MetricPoint[]; // summed working-set bytes across the namespace (range)
+  cpuNow: number | null;
+  memNow: number | null;
+  pods: number;
+  restarts: number;
+};
+
+export type PodUsage = {
+  pod: string;
+  cpu: number | null; // cores (instant)
+  mem: number | null; // bytes (instant)
+  restarts: number;
+};
+
+/** Range query yielding a single (no `by`) series → a flat point list. */
+async function rangeScalar(
+  expr: string,
+  start: number,
+  end: number,
+  step: number,
+): Promise<MetricPoint[]> {
+  const data = await promFetch("/api/v1/query_range", {
+    query: expr,
+    start: String(start),
+    end: String(end),
+    step: String(step),
+  });
+  const vals = data?.result?.[0]?.values ?? [];
+  return vals.map(([t, v]) => ({ t: t * 1000, y: num(v) }));
+}
+
+async function instantByPod(
+  expr: string,
+): Promise<Record<string, number | null>> {
+  const data = await promFetch("/api/v1/query", { query: expr });
+  const out: Record<string, number | null> = {};
+  for (const r of data?.result ?? []) {
+    const pod = r.metric?.pod;
+    if (pod) out[pod] = num(r.value?.[1]);
+  }
+  return out;
+}
+
+function lastDefined(points: MetricPoint[]): number | null {
+  for (let i = points.length - 1; i >= 0; i--) {
+    if (points[i].y != null) return points[i].y;
+  }
+  return null;
+}
+
+/** Space-wide CPU + memory TREND (range) for the overview's charts. */
+export async function getSpaceMetricsSeries(
+  namespace: string,
+  windowSec = 3600,
+): Promise<SpaceMetricsSeries> {
+  const end = Math.floor(Date.now() / 1000);
+  const start = end - windowSec;
+  const step = pickStep(windowSec);
+  const f = `namespace="${namespace}",container!=""`;
+  const [cpu, memory, restarts, pods] = await Promise.all([
+    rangeScalar(
+      `sum(rate(container_cpu_usage_seconds_total{${f}}[5m]))`,
+      start,
+      end,
+      step,
+    ),
+    rangeScalar(`sum(container_memory_working_set_bytes{${f}})`, start, end, step),
+    instantScalar(
+      `sum(kube_pod_container_status_restarts_total{namespace="${namespace}"})`,
+    ),
+    instantScalar(
+      `count(count by (pod) (container_memory_working_set_bytes{${f}}))`,
+    ),
+  ]);
+  return {
+    ok: cpu.length > 0 || memory.length > 0,
+    windowSec,
+    cpu,
+    memory,
+    cpuNow: lastDefined(cpu),
+    memNow: lastDefined(memory),
+    pods: pods ?? 0,
+    restarts: restarts ?? 0,
+  };
+}
+
+/** Per-pod instant CPU / memory / restarts — the page maps pods to apps. */
+export async function getSpaceWorkloadBreakdown(
+  namespace: string,
+): Promise<PodUsage[]> {
+  const f = `namespace="${namespace}",container!=""`;
+  const [cpu, mem, restarts] = await Promise.all([
+    instantByPod(`sum by (pod) (rate(container_cpu_usage_seconds_total{${f}}[5m]))`),
+    instantByPod(`sum by (pod) (container_memory_working_set_bytes{${f}})`),
+    instantByPod(
+      `sum by (pod) (kube_pod_container_status_restarts_total{namespace="${namespace}"})`,
+    ),
+  ]);
+  const pods = new Set([...Object.keys(cpu), ...Object.keys(mem)]);
+  return [...pods].map((pod) => ({
+    pod,
+    cpu: cpu[pod] ?? null,
+    mem: mem[pod] ?? null,
+    restarts: restarts[pod] ?? 0,
+  }));
+}
+
 /** Aggregate live usage across every workload pod in a space's namespace. */
 export async function getSpaceMetrics(
   namespace: string,

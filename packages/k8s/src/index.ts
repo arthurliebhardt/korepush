@@ -83,10 +83,14 @@ export {
   prometheusReachable,
   getAppMetrics,
   getSpaceMetrics,
+  getSpaceMetricsSeries,
+  getSpaceWorkloadBreakdown,
 } from "./metrics";
 export type {
   AppMetrics,
   SpaceMetrics,
+  SpaceMetricsSeries,
+  PodUsage,
   MetricSeries,
   MetricPoint,
 } from "./metrics";
