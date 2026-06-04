@@ -48,12 +48,14 @@ rules:
   - apiGroups: [""]
     resources: ["persistentvolumeclaims"]
     verbs: ["get", "list", "watch", "create"]
-  # Secrets are referenced (never created) by the operator — but the deletion
-  # finalizer deletes the per-app `<slug>-env` Secret and the per-host TLS
-  # Secrets in kube-system, so it needs delete too.
+  # Secrets: the deletion finalizer deletes the per-app `<slug>-env` Secret and
+  # the per-host TLS Secrets in kube-system (delete), and non-CNPG managed-DB
+  # engines (redis) CREATE a generated-password `db-<name>-app` Secret. CREATE
+  # only — NEVER update: the password Secret is create-once (read-existing-first)
+  # so a reconcile can't rotate it and break already-attached apps.
   - apiGroups: [""]
     resources: ["secrets"]
-    verbs: ["get", "list", "watch", "delete"]
+    verbs: ["get", "list", "watch", "create", "delete"]
   # Pod/deployment status feeds the CR's readyReplicas (read-only).
   - apiGroups: [""]
     resources: ["pods"]

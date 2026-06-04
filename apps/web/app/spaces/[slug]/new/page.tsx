@@ -25,7 +25,7 @@ export default async function DeployAppPage({
     cloneUrl: r.cloneUrl,
     defaultBranch: r.defaultBranch,
   }));
-  const databases = dbRows.map((d) => ({ id: d.id, name: d.name }));
+  const databases = dbRows.map((d) => ({ id: d.id, name: d.name, engine: d.engine }));
 
   return (
     <AppShell

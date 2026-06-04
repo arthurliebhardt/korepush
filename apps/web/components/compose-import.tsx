@@ -162,7 +162,7 @@ export function ComposeImport({ spaceSlug }: { spaceSlug: string }) {
                   <span className="badge bg-info/15 text-info-fg">database</span>
                   <span className="font-medium">{d.slug}</span>
                   <span className="text-xs text-muted">
-                    managed Postgres (CNPG)
+                    {d.engine === "redis" ? "managed Redis" : "managed Postgres (CNPG)"}
                   </span>
                 </li>
               ))}
@@ -186,7 +186,12 @@ export function ComposeImport({ spaceSlug }: { spaceSlug: string }) {
                     )}
                     {a.attachDatabaseService && (
                       <span className="text-xs text-success-fg">
-                        → {a.attachDatabaseService} as $DATABASE_URL
+                        → {a.attachDatabaseService} as $
+                        {preview.databases.find(
+                          (d) => d.service === a.attachDatabaseService,
+                        )?.engine === "redis"
+                          ? "REDIS_URL"
+                          : "DATABASE_URL"}
                       </span>
                     )}
                     {a.volumes && a.volumes.length > 0 && (

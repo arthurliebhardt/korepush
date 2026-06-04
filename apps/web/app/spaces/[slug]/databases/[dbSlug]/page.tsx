@@ -35,9 +35,13 @@ export default async function DatabaseDetailPage({
   const db = databases.find((d) => d.slug === dbSlug);
   if (!db) notFound();
 
+  // Engine-aware: the SQL console + pg_* stats only apply to Postgres. Redis is
+  // key-value (no SQL console) and uses a redis-cli connect flow.
+  const isPostgres = db.engine === "postgres";
+
   // Live stats run server-side against the DB's own URI (never sent to client).
   const stats =
-    tab !== "query" && db.info.connectionUri
+    tab !== "query" && isPostgres && db.info.connectionUri
       ? await getDatabaseStats(db.info.connectionUri).catch(() => null)
       : null;
 
@@ -47,8 +51,19 @@ export default async function DatabaseDetailPage({
   const basePath = `/spaces/${space.slug}/databases/${db.slug}`;
   const cluster = `db-${db.slug}`;
   const ns = space.namespace;
-  const execCmd = `kubectl -n ${ns} exec -it $(kubectl -n ${ns} get pod -l 'cnpg.io/cluster=${cluster},role=primary' -o name) -- psql -U postgres app`;
-  const pfCmd = `kubectl -n ${ns} port-forward svc/${cluster}-rw 5432:5432`;
+  const execCmd = isPostgres
+    ? `kubectl -n ${ns} exec -it $(kubectl -n ${ns} get pod -l 'cnpg.io/cluster=${cluster},role=primary' -o name) -- psql -U postgres app`
+    : `kubectl -n ${ns} exec -it deploy/${cluster} -- redis-cli`;
+  const pfCmd = isPostgres
+    ? `kubectl -n ${ns} port-forward svc/${cluster}-rw 5432:5432`
+    : `kubectl -n ${ns} port-forward svc/${cluster} 6379:6379`;
+  const localPort = isPostgres ? 5432 : 6379;
+  const execLabel = isPostgres
+    ? "Open psql inside the database pod"
+    : "Open redis-cli inside the database pod (run AUTH with the password from the connection string)";
+  const pfNote = isPostgres
+    ? "Then connect to localhost:5432 with the connection string above."
+    : `Then connect with: redis-cli -u <connection string above> (localhost:${localPort}).`;
 
   return (
     <AppShell
@@ -66,20 +81,24 @@ export default async function DatabaseDetailPage({
       <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-8">
         <div className="mb-6 flex items-center gap-3">
           <h1 className="text-xl font-semibold">{db.name}</h1>
-          <span className="text-xs text-muted">postgres</span>
+          <span className="text-xs text-muted">{db.engine}</span>
           <StatusBadge status={db.status} />
         </div>
 
         <Tabs
           basePath={basePath}
           active={tab}
-          tabs={[
-            { key: "overview", label: "Overview" },
-            { key: "query", label: "Query" },
-          ]}
+          tabs={
+            isPostgres
+              ? [
+                  { key: "overview", label: "Overview" },
+                  { key: "query", label: "Query" },
+                ]
+              : [{ key: "overview", label: "Overview" }]
+          }
         />
 
-        {tab === "query" ? (
+        {tab === "query" && isPostgres ? (
           <DbConsole spaceSlug={space.slug} dbSlug={db.slug} />
         ) : (
           <>
@@ -93,22 +112,21 @@ export default async function DatabaseDetailPage({
                     </code>
                     <CopyButton text={db.info.connectionUri} />
                   </div>
-                  <CmdBlock
-                    label="Open psql inside the database pod"
-                    cmd={execCmd}
-                  />
+                  <CmdBlock label={execLabel} cmd={execCmd} />
                   <CmdBlock
                     label="…or forward the port to your own client"
                     cmd={pfCmd}
-                    note="Then connect to localhost:5432 with the connection string above."
+                    note={pfNote}
                   />
                 </>
               ) : (
-                <p className="text-xs text-muted">Provisioning Postgres…</p>
+                <p className="text-xs text-muted">
+                  Provisioning {isPostgres ? "Postgres" : "Redis"}…
+                </p>
               )}
             </section>
 
-            {db.info.connectionUri && (
+            {isPostgres && db.info.connectionUri && (
               <section className="card mb-6 space-y-4">
                 <h2 className="text-sm font-medium text-muted">Overview</h2>
                 {stats && !stats.degraded ? (

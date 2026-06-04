@@ -65,7 +65,7 @@ export async function getSpaceDatabases(
   const dbRows = await listDatabases(space.id);
   return Promise.all(
     dbRows.map(async (d) => {
-      const info = await getDatabaseInfo(space.namespace, d.slug).catch(() => ({
+      const info = await getDatabaseInfo(space.namespace, d.slug, d.engine).catch(() => ({
         ready: false,
         phase: "provisioning",
         connectionUri: null,

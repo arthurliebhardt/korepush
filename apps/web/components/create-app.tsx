@@ -30,7 +30,7 @@ export function CreateApp({
 }: {
   spaceSlug: string;
   repos?: Repo[];
-  databases?: { id: string; name: string }[];
+  databases?: { id: string; name: string; engine?: string }[];
   embedded?: boolean;
 }) {
   const router = useRouter();
@@ -295,7 +295,13 @@ export function CreateApp({
       </select>
       <p className="mt-1 text-xs text-muted">
         Its connection string is injected as{" "}
-        <code className="font-mono text-foreground">$DATABASE_URL</code>.
+        <code className="font-mono text-foreground">
+          $
+          {databases.find((d) => d.id === attachDbId)?.engine === "redis"
+            ? "REDIS_URL"
+            : "DATABASE_URL"}
+        </code>
+        .
       </p>
     </div>
   );

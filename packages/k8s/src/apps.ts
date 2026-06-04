@@ -870,7 +870,7 @@ export async function attachDatabase(
   spaceSlug: string,
   appSlug: string,
   databaseId: string,
-  envVar = "DATABASE_URL",
+  envVar?: string,
 ) {
   const space = await getSpaceBySlug(spaceSlug);
   if (!space) throw new Error("Space not found");
@@ -888,13 +888,17 @@ export async function attachDatabase(
     .limit(1);
   if (!database) throw new Error("Database not found in this space");
 
+  // Default the injected env var by engine (Redis apps expect REDIS_URL). The
+  // connection Secret is uniform (db-<slug>-app key 'uri') regardless of engine.
+  const finalVar = envVar ?? (database.engine === "redis" ? "REDIS_URL" : "DATABASE_URL");
+
   await db
     .update(schema.apps)
-    .set({ attachedDbId: databaseId, dbEnvVar: envVar, updatedAt: new Date() })
+    .set({ attachedDbId: databaseId, dbEnvVar: finalVar, updatedAt: new Date() })
     .where(eq(schema.apps.id, app.id));
   // The operator resolves spec.database.name -> Secret db-<name>-app key 'uri'.
   await patchKoreApp(space.namespace, app.slug, {
-    spec: { database: { name: database.slug, envVar } },
+    spec: { database: { name: database.slug, envVar: finalVar } },
   });
 }
 

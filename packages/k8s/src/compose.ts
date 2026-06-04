@@ -35,6 +35,7 @@ export type ComposeDatabasePlan = {
   service: string;
   slug: string;
   name: string;
+  engine: string; // "postgres" | "redis"
 };
 
 export type ComposeSkip = { service: string; reason: string };
@@ -50,7 +51,17 @@ export type ComposePlan = {
 
 const SECRET_RE = /(pass|secret|token|key|cred|private)/i;
 const POSTGRES_RE = /^(docker\.io\/)?(library\/)?(postgres|postgis|.*\/postgres(ql)?)(:|$|@)/i;
-const STATEFUL_RE = /^(docker\.io\/)?(library\/)?(redis|mysql|mariadb|mongo|rabbitmq|memcached|elasticsearch|.*\/(redis|mysql|mariadb|mongo|rabbitmq))(:|$|@)/i;
+const REDIS_RE = /^(docker\.io\/)?(library\/)?(redis|valkey|.*\/(redis|valkey))(:|$|@)/i;
+// Stateful engines korepush does NOT yet manage (mysql/mariadb deferred to a
+// follow-up) — these still warn when run as an ephemeral app.
+const UNMANAGED_STATEFUL_RE = /^(docker\.io\/)?(library\/)?(mysql|mariadb|mongo|rabbitmq|memcached|elasticsearch|.*\/(mysql|mariadb|mongo|rabbitmq))(:|$|@)/i;
+
+// Map an image to a korepush-managed engine, or null if not managed.
+function engineFromImage(img: string): string | null {
+  if (POSTGRES_RE.test(img)) return "postgres";
+  if (REDIS_RE.test(img)) return "redis";
+  return null;
+}
 
 function isSecretKey(k: string): boolean {
   return SECRET_RE.test(k);
@@ -231,12 +242,24 @@ export function parseComposePlan(yamlText: string): ComposePlan {
   const names = Object.keys(services);
   const slugFor = (n: string) => slugify(n);
 
-  // First pass: classify each service as a Postgres database or an app.
+  // First pass: classify each service as a managed database or an app. Postgres
+  // is always managed; redis is managed ONLY when it declares a named volume —
+  // a volumeless redis is an ephemeral cache, which we keep as an app (so we
+  // don't silently turn caches into persistent PVC-backed databases on import).
   const dbServices = new Set<string>();
+  const dbEngineByService = new Map<string, string>();
   for (const name of names) {
     const svc = services[name] as Record<string, unknown>;
     const image = typeof svc?.image === "string" ? svc.image : "";
-    if (image && POSTGRES_RE.test(image)) dbServices.add(name);
+    if (!image) continue;
+    const eng = engineFromImage(image);
+    const managed =
+      eng === "postgres" ||
+      (eng === "redis" && parseComposeVolumes(svc.volumes).volumes.length > 0);
+    if (managed && eng) {
+      dbServices.add(name);
+      dbEngineByService.set(name, eng);
+    }
   }
 
   const databases: ComposeDatabasePlan[] = [];
@@ -249,7 +272,7 @@ export function parseComposePlan(yamlText: string): ComposePlan {
     const image = typeof svc.image === "string" ? svc.image : "";
 
     if (dbServices.has(name)) {
-      databases.push({ service: name, slug, name: slug });
+      databases.push({ service: name, slug, name: slug, engine: dbEngineByService.get(name) ?? "postgres" });
       continue;
     }
 
@@ -301,14 +324,16 @@ export function parseComposePlan(yamlText: string): ComposePlan {
       }
     }
 
-    // korepush injects DATABASE_URL for the attached db, so drop the compose
-    // connection string to avoid a conflicting duplicate.
+    // korepush injects the connection string for the attached db, so drop the
+    // compose one to avoid a conflicting duplicate. The injected env var depends
+    // on the engine (REDIS_URL for redis, DATABASE_URL otherwise).
     if (attachDatabaseService) {
       const dbName = attachDatabaseService;
+      const injectedVar = dbEngineByService.get(dbName) === "redis" ? "REDIS_URL" : "DATABASE_URL";
       const dropped: string[] = [];
       env = env.filter((e) => {
         const isConn =
-          e.key.toUpperCase() === "DATABASE_URL" ||
+          e.key.toUpperCase() === injectedVar ||
           (/:\/\//.test(e.value) &&
             new RegExp(`@?${dbName}(:|/)`, "i").test(e.value));
         if (isConn) {
@@ -318,7 +343,7 @@ export function parseComposePlan(yamlText: string): ComposePlan {
         return true;
       });
       if (dropped.length) {
-        w.push(`Dropped ${dropped.join(", ")} — korepush injects DATABASE_URL for the "${slugFor(dbName)}" database.`);
+        w.push(`Dropped ${dropped.join(", ")} — korepush injects ${injectedVar} for the "${slugFor(dbName)}" database.`);
       }
     }
 
@@ -369,7 +394,12 @@ export function parseComposePlan(yamlText: string): ComposePlan {
     ) {
       w.push("`deploy.resources.reservations` (requests) aren't applied — set resource limits instead.");
     }
-    if (STATEFUL_RE.test(image) && appVolumes.length === 0) {
+    // redis with a volume was already classified as a managed DB above; what
+    // remains here is either a volumeless redis (ephemeral cache) or a still-
+    // unmanaged engine (mysql/mongo/…) — warn that it runs without persistence.
+    if (REDIS_RE.test(image)) {
+      w.push("Redis without a volume runs as an ephemeral cache — add a named volume to import it as a managed Redis database.");
+    } else if (UNMANAGED_STATEFUL_RE.test(image) && appVolumes.length === 0) {
       w.push("No managed engine for this datastore — it runs ephemerally (add a volume for persistence, but there are no backups).");
     }
 

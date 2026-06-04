@@ -33,12 +33,20 @@ export async function getDatabase(spaceId: string, slug: string) {
   return row ?? null;
 }
 
-export async function createDatabase(input: { spaceSlug: string; name: string }) {
+export async function createDatabase(input: {
+  spaceSlug: string;
+  name: string;
+  engine?: string;
+}) {
   const space = await getSpaceBySlug(input.spaceSlug);
   if (!space) throw new Error("Space not found");
   const slug = slugify(input.name);
   if (!slug) throw new Error("Invalid database name");
 
+  const engine = (input.engine ?? "postgres").toLowerCase();
+  if (engine !== "postgres" && engine !== "redis") {
+    throw new Error(`Unsupported database engine "${engine}".`);
+  }
   const name = clusterName(slug);
   const [row] = await db
     .insert(schema.databases)
@@ -46,7 +54,9 @@ export async function createDatabase(input: { spaceSlug: string; name: string })
       spaceId: space.id,
       name: input.name,
       slug,
-      engine: "postgres",
+      engine,
+      // version is text; redis bakes redis:7-alpine, postgres pins the CNPG major.
+      version: engine === "redis" ? "7" : "16",
       status: "provisioning",
       connectionSecret: `${name}-app`,
     })
@@ -59,8 +69,9 @@ export async function createDatabase(input: { spaceSlug: string; name: string })
     });
 
   try {
-    // The operator reconciles the KoreDatabase into a CNPG Cluster.
-    await createKoreDatabase(space.namespace, slug, { engine: "postgres" });
+    // The operator reconciles the KoreDatabase by engine (CNPG / redis workload).
+    // Do NOT thread version into the redis CR (it bakes its image tag).
+    await createKoreDatabase(space.namespace, slug, { engine });
   } catch (err) {
     await db
       .update(schema.databases)
@@ -78,39 +89,49 @@ export type DatabaseInfo = {
   host: string | null;
 };
 
-/** Live status + connection string for a database (from the CNPG Cluster + secret). */
+/** Live status + connection string for a database. Branches by engine: postgres
+ *  probes the CNPG Cluster CR; redis probes its operator-managed Deployment. */
 export async function getDatabaseInfo(
   namespace: string,
   slug: string,
+  engine = "postgres",
 ): Promise<DatabaseInfo> {
-  const { custom, core } = k8sClients();
+  const { custom, core, apps } = k8sClients();
   const name = clusterName(slug);
 
   let ready = false;
   let phase = "provisioning";
-  // The CNPG Cluster CR is created asynchronously by the operator, so a 404 just
-  // means "not provisioned yet" — report provisioning, NOT failed. A genuine
-  // (non-404) error propagates to the caller, which falls back to provisioning.
-  const cr = (await custom
-    .getNamespacedCustomObject({
-      group: CNPG_GROUP,
-      version: CNPG_VERSION,
-      namespace,
-      plural: "clusters",
-      name,
-    })
-    .catch((e: unknown) => {
-      if ((e as { code?: number })?.code === 404) return null;
-      throw e;
-    })) as { status?: { phase?: string; readyInstances?: number } } | null;
-  if (cr) {
-    phase = cr.status?.phase ?? "provisioning";
-    ready = (cr.status?.readyInstances ?? 0) >= 1;
+  if (engine === "redis") {
+    // Redis has no CR of its own beyond the KoreDatabase — probe the Deployment.
+    const dep = await apps.readNamespacedDeployment({ name, namespace }).catch(() => null);
+    ready = (dep?.status?.readyReplicas ?? 0) >= 1;
+    phase = ready ? "running" : "provisioning";
+  } else {
+    // The CNPG Cluster CR is created asynchronously by the operator, so a 404 just
+    // means "not provisioned yet" — report provisioning, NOT failed. A genuine
+    // (non-404) error propagates to the caller, which falls back to provisioning.
+    const cr = (await custom
+      .getNamespacedCustomObject({
+        group: CNPG_GROUP,
+        version: CNPG_VERSION,
+        namespace,
+        plural: "clusters",
+        name,
+      })
+      .catch((e: unknown) => {
+        if ((e as { code?: number })?.code === 404) return null;
+        throw e;
+      })) as { status?: { phase?: string; readyInstances?: number } } | null;
+    if (cr) {
+      phase = cr.status?.phase ?? "provisioning";
+      ready = (cr.status?.readyInstances ?? 0) >= 1;
+    }
   }
 
   let connectionUri: string | null = null;
   let host: string | null = null;
   if (ready) {
+    // Uniform across engines: the `db-<slug>-app` Secret carries uri + host.
     const sec = await core
       .readNamespacedSecret({ name: `${name}-app`, namespace })
       .catch(() => null);
@@ -150,8 +171,16 @@ export async function deleteDatabase(spaceSlug: string, slug: string) {
   }
 
   // Delete the KoreDatabase CR; the operator's ownerReference GC removes the
-  // CNPG Cluster. (The LimitRange is now owned by the KoreSpace.)
+  // materialised objects (CNPG Cluster, or the redis Deployment/Service/Secret).
   await deleteKoreDatabase(space.namespace, slug);
+  // Non-CNPG engines (redis) own a PVC with NO ownerReference (data safety), so
+  // CR-delete GC won't reclaim it — delete it explicitly (404-tolerant: it may
+  // never have bound if provisioning failed). Postgres PVCs are CNPG-owned.
+  if (row.engine !== "postgres") {
+    await k8sClients()
+      .core.deleteNamespacedPersistentVolumeClaim({ name: `${clusterName(slug)}-data`, namespace: space.namespace })
+      .catch(() => {});
+  }
   await db.delete(schema.databases).where(eq(schema.databases.id, row.id));
 }
 

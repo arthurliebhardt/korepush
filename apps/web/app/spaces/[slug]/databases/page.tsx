@@ -40,7 +40,7 @@ export default async function SpaceDatabasesPage({
           <div>
             <h1 className="text-xl font-semibold">Databases</h1>
             <p className="text-sm text-muted">
-              Postgres instances, provisioned with CNPG inside this space.
+              Managed Postgres &amp; Redis instances inside this space.
             </p>
           </div>
           <CreateDatabase spaceSlug={space.slug} />
@@ -49,7 +49,7 @@ export default async function SpaceDatabasesPage({
         {databases.length === 0 ? (
           <EmptyState
             title="No databases yet"
-            description="Create a Postgres database, then attach it to an app to inject its connection string."
+            description="Create a Postgres or Redis database, then attach it to an app to inject its connection string."
           />
         ) : (
           <ul className="space-y-3">
@@ -59,6 +59,7 @@ export default async function SpaceDatabasesPage({
                   spaceSlug={space.slug}
                   slug={d.slug}
                   name={d.name}
+                  engine={d.engine}
                   status={d.status}
                   host={d.info.host}
                   usedBy={usedByOf(d.id)}

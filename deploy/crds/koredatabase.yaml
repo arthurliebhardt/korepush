@@ -1,8 +1,10 @@
-# The KoreDatabase CRD — a per-space Postgres database. The operator reconciles
-# it into a CloudNativePG Cluster (db-<name>) in the space namespace; CNPG then
-# creates the `db-<name>-app` Secret (key `uri`) a KoreApp references via
-# spec.database. Namespaced; metadata.name = the database slug. The Cluster
-# carries an ownerReference so deleting the KoreDatabase GCs it.
+# The KoreDatabase CRD — a per-space managed database. The operator reconciles
+# it by engine: postgres -> a CloudNativePG Cluster (db-<name>); redis -> an
+# operator-managed Deployment + Service + PVC + generated-password Secret. EVERY
+# engine exposes a `db-<name>-app` Secret (key `uri`) a KoreApp references via
+# spec.database — so the app-attach path is engine-agnostic. Namespaced;
+# metadata.name = the database slug. (mysql is a planned follow-up: widen the
+# enum + add a reconcileMysql branch.)
 apiVersion: apiextensions.k8s.io/v1
 kind: CustomResourceDefinition
 metadata:
@@ -34,9 +36,14 @@ spec:
             spec:
               type: object
               properties:
-                engine: { type: string, enum: [postgres], default: postgres }
+                # postgres -> CNPG Cluster; redis -> operator Deployment+Service+PVC+Secret.
+                engine: { type: string, enum: [postgres, redis], default: postgres }
+                # version applies to postgres only (CNPG operand major). redis bakes
+                # redis:7-alpine and ignores this field.
                 version: { type: integer, default: 16 }
+                # postgres: CNPG volume size. redis: the data PVC size.
                 storage: { type: string, default: "5Gi" }
+                # instances applies to postgres (CNPG nodes) only; redis is single-replica.
                 instances: { type: integer, minimum: 1, maximum: 3, default: 1 }
             status:
               type: object

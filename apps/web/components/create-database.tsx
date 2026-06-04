@@ -8,6 +8,7 @@ export function CreateDatabase({ spaceSlug }: { spaceSlug: string }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
+  const [engine, setEngine] = useState("postgres");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -15,16 +16,19 @@ export function CreateDatabase({ spaceSlug }: { spaceSlug: string }) {
     e.preventDefault();
     setError(null);
     startTransition(async () => {
-      const res = await createDatabaseAction(spaceSlug, name);
+      const res = await createDatabaseAction(spaceSlug, name, engine);
       if (!res.ok) {
         setError(res.error);
         return;
       }
       setName("");
+      setEngine("postgres");
       setOpen(false);
       router.refresh();
     });
   }
+
+  const engineLabel = engine === "redis" ? "Redis" : "Postgres";
 
   if (!open) {
     return (
@@ -47,8 +51,17 @@ export function CreateDatabase({ spaceSlug }: { spaceSlug: string }) {
         />
         {error && <p className="mt-1 text-xs text-danger">{error}</p>}
       </div>
+      <select
+        className="input w-32"
+        value={engine}
+        onChange={(e) => setEngine(e.target.value)}
+        aria-label="Engine"
+      >
+        <option value="postgres">Postgres</option>
+        <option value="redis">Redis</option>
+      </select>
       <button type="submit" className="btn-primary" disabled={pending}>
-        {pending ? "Creating…" : "Create Postgres"}
+        {pending ? "Creating…" : `Create ${engineLabel}`}
       </button>
       <button
         type="button"

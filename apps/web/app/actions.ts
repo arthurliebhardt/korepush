@@ -184,7 +184,7 @@ export async function importComposeAction(
   // Databases first so app attaches have a target.
   for (const db of plan.databases) {
     try {
-      const row = await createDatabase({ spaceSlug, name: db.name });
+      const row = await createDatabase({ spaceSlug, name: db.name, engine: db.engine });
       dbIdByService.set(db.service, row.id);
       results.push({ service: db.service, kind: "database", status: "created", slug: row.slug });
     } catch (err) {
@@ -377,10 +377,11 @@ export async function redeployAction(
 export async function createDatabaseAction(
   spaceSlug: string,
   name: string,
+  engine?: string,
 ): Promise<ActionResult> {
   await assertOwnsSpace(spaceSlug);
   try {
-    await createDatabase({ spaceSlug, name });
+    await createDatabase({ spaceSlug, name, engine });
     revalidatePath(`/spaces/${spaceSlug}`);
     return { ok: true };
   } catch (err) {
@@ -409,12 +410,15 @@ export async function runDatabaseQueryAction(
     const { space } = await assertOwnsSpace(spaceSlug);
     const row = await getDatabase(space.id, dbSlug);
     if (!row) return { ok: false, error: "Database not found." };
+    if (row.engine !== "postgres") {
+      return { ok: false, error: "SQL console is only available for Postgres databases." };
+    }
     key = `${space.id}:${row.slug}`;
     if (runningQueries.has(key)) {
       return { ok: false, error: "A query is already running on this database." };
     }
     runningQueries.add(key);
-    const info = await getDatabaseInfo(space.namespace, row.slug);
+    const info = await getDatabaseInfo(space.namespace, row.slug, row.engine);
     if (!info.connectionUri) {
       return { ok: false, error: "Database is still provisioning." };
     }

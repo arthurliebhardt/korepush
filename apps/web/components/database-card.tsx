@@ -7,6 +7,7 @@ export function DatabaseCard({
   spaceSlug,
   slug,
   name,
+  engine = "postgres",
   status,
   host,
   usedBy = [],
@@ -14,6 +15,7 @@ export function DatabaseCard({
   spaceSlug: string;
   slug: string;
   name: string;
+  engine?: string;
   status: string;
   host: string | null;
   usedBy?: string[];
@@ -26,7 +28,7 @@ export function DatabaseCard({
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-medium">{name}</span>
-          <span className="text-xs text-muted">postgres</span>
+          <span className="text-xs text-muted">{engine}</span>
           <StatusBadge status={status} />
         </div>
         <p className="mt-1 truncate font-mono text-xs text-muted">
