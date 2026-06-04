@@ -31,6 +31,10 @@ import {
   refreshAppDomainStatus,
   setRegistryCredential,
   removeRegistryCredential,
+  createStack,
+  getStack,
+  deleteStack,
+  slugify,
 } from "@korepush/k8s";
 import type { VolumeSpec } from "@korepush/k8s";
 import {
@@ -143,10 +147,16 @@ export async function createAppAction(input: {
 }
 
 /** Parse a docker-compose file into a preview plan (no side effects). */
-export async function previewComposeAction(spaceSlug: string, yaml: string) {
+export async function previewComposeAction(
+  spaceSlug: string,
+  yaml: string,
+  stackName = "",
+) {
   const { space } = await assertOwnsSpace(spaceSlug);
   const plan = parseComposePlan(yaml);
-  if (!plan.ok) return { ...plan, collisions: [] as string[] };
+  if (!plan.ok) {
+    return { ...plan, collisions: [] as string[], stackCollision: false };
+  }
   const [apps, dbs] = await Promise.all([
     listApps(space.id),
     listDatabases(space.id),
@@ -158,7 +168,9 @@ export async function previewComposeAction(spaceSlug: string, yaml: string) {
   const collisions = [...plan.apps, ...plan.databases]
     .filter((x) => existing.has(x.slug))
     .map((x) => x.slug);
-  return { ...plan, collisions };
+  const stackSlug = slugify(stackName);
+  const stackCollision = !!stackSlug && !!(await getStack(space.id, stackSlug));
+  return { ...plan, collisions, stackCollision };
 }
 
 export type ComposeImportResult = {
@@ -169,14 +181,55 @@ export type ComposeImportResult = {
   error?: string;
 };
 
-/** Fan a compose file out into apps + Postgres databases (re-parsed server-side). */
+/** Fan a compose file out into one named stack of apps + databases (re-parsed
+ *  server-side). Aborts up front on a member-slug or stack-name collision so a
+ *  doomed import never leaves a half-built or empty stack behind. */
 export async function importComposeAction(
   spaceSlug: string,
   yaml: string,
-): Promise<{ ok: boolean; error?: string; results: ComposeImportResult[] }> {
-  await assertOwnsSpace(spaceSlug);
+  stackName: string,
+): Promise<{
+  ok: boolean;
+  error?: string;
+  results: ComposeImportResult[];
+  stackSlug?: string;
+  stackName?: string;
+}> {
+  const { space } = await assertOwnsSpace(spaceSlug);
   const plan = parseComposePlan(yaml); // never trust a client-sent plan
   if (!plan.ok) return { ok: false, error: plan.error, results: [] };
+  if (!stackName.trim()) {
+    return { ok: false, error: "Enter a name for this stack.", results: [] };
+  }
+
+  // Abort BEFORE creating the stack row if any member slug collides — otherwise
+  // a fully-colliding import would create an orphan empty stack.
+  const [existingApps, existingDbs] = await Promise.all([
+    listApps(space.id),
+    listDatabases(space.id),
+  ]);
+  const taken = new Set<string>([
+    ...existingApps.map((a) => a.slug),
+    ...existingDbs.map((d) => d.slug),
+  ]);
+  const colliding = [...plan.apps, ...plan.databases]
+    .filter((x) => taken.has(x.slug))
+    .map((x) => x.slug);
+  if (colliding.length > 0) {
+    return {
+      ok: false,
+      error: `Already exists in this space: ${colliding.join(", ")} — rename those services and import again.`,
+      results: [],
+    };
+  }
+
+  // Create the stack first; thread its id into every member.
+  let stack;
+  try {
+    stack = await createStack(spaceSlug, stackName.trim());
+  } catch (err) {
+    return { ok: false, error: errorMessage(err), results: [] };
+  }
 
   const results: ComposeImportResult[] = [];
   const dbIdByService = new Map<string, string>();
@@ -184,7 +237,7 @@ export async function importComposeAction(
   // Databases first so app attaches have a target.
   for (const db of plan.databases) {
     try {
-      const row = await createDatabase({ spaceSlug, name: db.name, engine: db.engine });
+      const row = await createDatabase({ spaceSlug, name: db.name, engine: db.engine, stackId: stack.id });
       dbIdByService.set(db.service, row.id);
       results.push({ service: db.service, kind: "database", status: "created", slug: row.slug });
     } catch (err) {
@@ -210,6 +263,7 @@ export async function importComposeAction(
         args: app.args,
         healthcheck: app.healthcheck,
         volumes: app.volumes,
+        stackId: stack.id,
       });
       if (split) await setAppEnv(spaceSlug, created.slug, split);
       if (app.attachDatabaseService) {
@@ -222,8 +276,40 @@ export async function importComposeAction(
     }
   }
 
+  // If nothing was created, drop the empty stack row so it doesn't linger.
+  const created = results.some((r) => r.status === "created");
+  if (!created) {
+    await deleteStack(spaceSlug, stack.slug).catch(() => {});
+    revalidatePath(`/spaces/${spaceSlug}`);
+    return { ok: false, error: "No services could be imported.", results };
+  }
+
   revalidatePath(`/spaces/${spaceSlug}`);
-  return { ok: results.some((r) => r.status === "created"), results };
+  revalidatePath(`/spaces/${spaceSlug}/stacks`);
+  return { ok: true, results, stackSlug: stack.slug, stackName: stack.name };
+}
+
+export async function deleteStackAction(
+  spaceSlug: string,
+  stackSlug: string,
+): Promise<ActionResult> {
+  await assertOwnsSpace(spaceSlug);
+  try {
+    const res = await deleteStack(spaceSlug, stackSlug);
+    revalidatePath(`/spaces/${spaceSlug}`);
+    revalidatePath(`/spaces/${spaceSlug}/stacks`);
+    if (!res.ok) {
+      return {
+        ok: false,
+        error: `Some members could not be deleted — ${res.failures
+          .map((f) => `${f.kind} ${f.slug}: ${f.error}`)
+          .join("; ")}. The stack was kept; try again.`,
+      };
+    }
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  }
 }
 
 export async function deleteAppAction(
@@ -234,6 +320,7 @@ export async function deleteAppAction(
   try {
     await deleteApp(spaceSlug, appSlug);
     revalidatePath(`/spaces/${spaceSlug}`);
+    revalidatePath(`/spaces/${spaceSlug}/stacks`);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: errorMessage(err) };
@@ -442,6 +529,7 @@ export async function deleteDatabaseAction(
   try {
     await deleteDatabase(spaceSlug, slug);
     revalidatePath(`/spaces/${spaceSlug}`);
+    revalidatePath(`/spaces/${spaceSlug}/stacks`);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: errorMessage(err) };

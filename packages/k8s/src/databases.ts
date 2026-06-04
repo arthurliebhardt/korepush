@@ -37,6 +37,7 @@ export async function createDatabase(input: {
   spaceSlug: string;
   name: string;
   engine?: string;
+  stackId?: string;
 }) {
   const space = await getSpaceBySlug(input.spaceSlug);
   if (!space) throw new Error("Space not found");
@@ -59,6 +60,7 @@ export async function createDatabase(input: {
       version: engine === "redis" ? "7" : "16",
       status: "provisioning",
       connectionSecret: `${name}-app`,
+      stackId: input.stackId ?? null,
     })
     .returning()
     .catch((err) => {

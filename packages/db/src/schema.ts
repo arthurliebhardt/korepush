@@ -173,6 +173,13 @@ export const apps = pgTable("apps", {
     onDelete: "set null",
   }),
   dbEnvVar: text("db_env_var").default("DATABASE_URL").notNull(),
+  // Compose-stack membership (null = standalone). set-null on stack delete: a
+  // raw stack-row delete only un-groups members — all real teardown goes through
+  // deleteStack -> deleteApp/deleteDatabase, never an FK cascade (which would
+  // drop member rows with no cluster cleanup).
+  stackId: uuid("stack_id").references((): AnyPgColumn => stacks.id, {
+    onDelete: "set null",
+  }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
@@ -213,12 +220,33 @@ export const databases = pgTable("databases", {
   status: resourceStatus("status").default("pending").notNull(),
   // Name of the k8s secret holding the connection string.
   connectionSecret: text("connection_secret"),
+  // Compose-stack membership (null = standalone) — see apps.stackId.
+  stackId: uuid("stack_id").references((): AnyPgColumn => stacks.id, {
+    onDelete: "set null",
+  }),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [
   // The slug becomes the CNPG cluster name `db-<slug>`; a per-space collision
   // would silently share one Postgres cluster across two database rows.
   uniqueIndex("databases_space_slug_unique").on(t.spaceId, t.slug),
+]);
+
+// A stack groups the apps + databases created from one compose import. It
+// materialises NOTHING in the cluster (members own their KoreApp/KoreDatabase
+// CRs) — it's a pure control-plane grouping for atomic create/delete + an
+// aggregate status view. Aggregate status is computed live (no status column).
+export const stacks = pgTable("stacks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  spaceId: uuid("space_id")
+    .notNull()
+    .references(() => spaces.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  slug: text("slug").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+}, (t) => [
+  uniqueIndex("stacks_space_slug_unique").on(t.spaceId, t.slug),
 ]);
 
 export const deployments = pgTable("deployments", {
@@ -268,4 +296,5 @@ export type User = typeof user.$inferSelect;
 export type Space = typeof spaces.$inferSelect;
 export type App = typeof apps.$inferSelect;
 export type Database = typeof databases.$inferSelect;
+export type Stack = typeof stacks.$inferSelect;
 export type Deployment = typeof deployments.$inferSelect;

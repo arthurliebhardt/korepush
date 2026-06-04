@@ -22,6 +22,7 @@ const VARIANT: Record<string, Variant> = {
   // inert
   stopped: "neutral",
   canceled: "neutral",
+  empty: "neutral",
 };
 
 const LABEL: Record<string, string> = {
@@ -40,6 +41,7 @@ const LABEL: Record<string, string> = {
   error: "Error",
   stopped: "Stopped",
   canceled: "Canceled",
+  empty: "Empty",
 };
 
 const STYLE: Record<Variant, string> = {

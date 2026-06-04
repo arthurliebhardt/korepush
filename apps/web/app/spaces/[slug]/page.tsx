@@ -10,7 +10,12 @@ import { AppShell } from "@/components/app-shell";
 import { NewMenu } from "@/components/new-menu";
 import { SpaceMetricsCharts } from "@/components/space-metrics-charts";
 import { timeAgo, fmtDuration } from "@/lib/time";
-import { getSpaceApps, getSpaceDatabases, getSpaceDomains } from "@/lib/space-data";
+import {
+  getSpaceApps,
+  getSpaceDatabases,
+  getSpaceDomains,
+  getSpaceStacks,
+} from "@/lib/space-data";
 
 export const dynamic = "force-dynamic";
 
@@ -23,15 +28,17 @@ export default async function SpaceOverviewPage({
   const { session, space } = await requireSpacePage(slug);
   const u = session.user as { id: string; email: string; role?: string };
 
-  const [{ apps }, databases, domains, series, breakdown, allDeploys] =
+  const [{ apps }, databases, domains, stacks, series, breakdown, allDeploys] =
     await Promise.all([
       getSpaceApps(space),
       getSpaceDatabases(space),
       getSpaceDomains(space),
+      getSpaceStacks(space),
       getSpaceMetricsSeries(space.namespace).catch(() => null),
       getSpaceWorkloadBreakdown(space.namespace).catch(() => []),
       listAllDeployments(space.ownerId).catch(() => []),
     ]);
+  const badStacks = stacks.filter((s) => s.status === "degraded").length;
 
   const unhealthy = apps.filter(
     (a) => a.status === "failed" || a.status === "degraded",
@@ -118,7 +125,7 @@ export default async function SpaceOverviewPage({
         </section>
 
         {/* Inventory roll-ups */}
-        <section className="mb-10 grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <section className="mb-10 grid grid-cols-2 gap-4 sm:grid-cols-4">
           <RollupCard
             href={`/spaces/${space.slug}/apps`}
             label="Apps"
@@ -137,7 +144,21 @@ export default async function SpaceOverviewPage({
             href={`/spaces/${space.slug}/databases`}
             label="Databases"
             count={databases.length}
-            detail={databases.length === 0 ? "None yet" : "Postgres"}
+            detail={databases.length === 0 ? "None yet" : "Postgres & Redis"}
+          />
+          <RollupCard
+            href={`/spaces/${space.slug}/stacks`}
+            label="Stacks"
+            count={stacks.length}
+            detail={
+              stacks.length === 0
+                ? "None yet"
+                : badStacks > 0
+                  ? `${badStacks} need attention`
+                  : "All healthy"
+            }
+            bad={badStacks > 0}
+            showDot
           />
           <RollupCard
             href={`/spaces/${space.slug}/domains`}

@@ -71,6 +71,7 @@ export type CreateAppInput = {
     startPeriod?: number;
   };
   volumes?: VolumeSpec[];
+  stackId?: string;
 };
 
 export async function createApp(input: CreateAppInput) {
@@ -96,6 +97,7 @@ export async function createApp(input: CreateAppInput) {
       args: input.args ?? null,
       healthcheck: input.healthcheck ?? null,
       volumes: input.volumes ?? [],
+      stackId: input.stackId ?? null,
       status: "provisioning",
     })
     .returning()

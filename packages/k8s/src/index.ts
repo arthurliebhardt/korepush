@@ -104,6 +104,14 @@ export {
   listAllDomains,
 } from "./overview";
 export {
+  listStacks,
+  getStack,
+  listStackMembers,
+  createStack,
+  deleteStack,
+} from "./stacks";
+export type { StackDeleteFailure } from "./stacks";
+export {
   listRegistryCredentials,
   setRegistryCredential,
   removeRegistryCredential,

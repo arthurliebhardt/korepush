@@ -24,6 +24,7 @@ const EXAMPLE = `services:
 
 export function ComposeImport({ spaceSlug }: { spaceSlug: string }) {
   const [yaml, setYaml] = useState("");
+  const [stackName, setStackName] = useState("compose");
   const [preview, setPreview] = useState<Preview | null>(null);
   const [results, setResults] = useState<ImportRes | null>(null);
   const [pending, startTransition] = useTransition();
@@ -32,12 +33,12 @@ export function ComposeImport({ spaceSlug }: { spaceSlug: string }) {
     if (!yaml.trim()) return;
     setResults(null);
     startTransition(async () => {
-      setPreview(await previewComposeAction(spaceSlug, yaml));
+      setPreview(await previewComposeAction(spaceSlug, yaml, stackName));
     });
   }
   function doImport() {
     startTransition(async () => {
-      const res = await importComposeAction(spaceSlug, yaml);
+      const res = await importComposeAction(spaceSlug, yaml, stackName);
       setResults(res);
       setPreview(null);
     });
@@ -46,14 +47,31 @@ export function ComposeImport({ spaceSlug }: { spaceSlug: string }) {
   const importable =
     preview?.ok &&
     (preview.apps.length > 0 || preview.databases.length > 0) &&
-    preview.collisions.length === 0;
+    preview.collisions.length === 0 &&
+    !preview.stackCollision &&
+    !!stackName.trim();
   const count =
     (preview?.apps.length ?? 0) + (preview?.databases.length ?? 0);
+  const createdCount = results
+    ? results.results.filter((r) => r.status === "created").length
+    : 0;
 
   if (results) {
     return (
       <div className="space-y-3">
-        <h2 className="text-sm font-medium">Import results</h2>
+        <h2 className="text-sm font-medium">
+          {results.stackName ? (
+            <>
+              Stack &quot;{results.stackName}&quot; — {createdCount} of{" "}
+              {results.results.length} created
+            </>
+          ) : (
+            "Import results"
+          )}
+        </h2>
+        {!results.ok && results.error && (
+          <p className="text-sm text-danger">{results.error}</p>
+        )}
         <ul className="panel divide-y divide-border">
           {results.results.map((r) => (
             <li
@@ -89,14 +107,24 @@ export function ComposeImport({ spaceSlug }: { spaceSlug: string }) {
           ))}
         </ul>
         <div className="flex gap-2">
-          <Link href={`/spaces/${spaceSlug}/apps`} className="btn-primary">
-            View apps
-          </Link>
+          {results.stackSlug ? (
+            <Link
+              href={`/spaces/${spaceSlug}/stacks/${results.stackSlug}`}
+              className="btn-primary"
+            >
+              View stack
+            </Link>
+          ) : (
+            <Link href={`/spaces/${spaceSlug}/apps`} className="btn-primary">
+              View apps
+            </Link>
+          )}
           <button
             className="btn-ghost"
             onClick={() => {
               setResults(null);
               setYaml("");
+              setStackName("compose");
             }}
           >
             Import another
@@ -108,6 +136,23 @@ export function ComposeImport({ spaceSlug }: { spaceSlug: string }) {
 
   return (
     <div className="space-y-4">
+      <div>
+        <label className="label">Stack name</label>
+        <input
+          className="input w-full sm:w-72"
+          placeholder="compose"
+          value={stackName}
+          onChange={(e) => {
+            setStackName(e.target.value);
+            setPreview(null);
+          }}
+        />
+        <p className="mt-1 text-xs text-muted">
+          All imported services are grouped under this stack — manage and delete
+          them together.
+        </p>
+      </div>
+
       <div>
         <label className="label">Paste your docker-compose.yml</label>
         <textarea
@@ -235,6 +280,12 @@ export function ComposeImport({ spaceSlug }: { spaceSlug: string }) {
             <p className="text-sm text-danger">
               Already exists in this space: {preview.collisions.join(", ")} —
               rename those services and preview again.
+            </p>
+          )}
+          {preview.stackCollision && (
+            <p className="text-sm text-danger">
+              A stack named &quot;{stackName}&quot; already exists in this space —
+              choose a different stack name.
             </p>
           )}
 
