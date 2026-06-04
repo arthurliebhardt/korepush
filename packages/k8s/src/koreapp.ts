@@ -21,6 +21,9 @@ export type KoreAppSpec = {
   image?: string;
   port: number;
   replicas?: number;
+  // Container resource limits (k8s quantity strings); operator applies defaults
+  // when a field is absent.
+  resources?: { cpu?: string; memory?: string };
   env?: EnvVarSpec[];
   envFrom?: { secretRef: { name: string } }[];
   domains?: { host: string; staging?: boolean }[];
@@ -35,6 +38,8 @@ type AppLike = {
   image: string | null;
   port: number;
   replicas: number;
+  cpuLimit: string | null;
+  memoryLimit: string | null;
   env: Record<string, string> | null;
   secretKeys: string[] | null;
   dbEnvVar: string;
@@ -56,6 +61,11 @@ export function buildKoreAppSpec(
     replicas: app.replicas,
   };
   if (app.image) spec.image = app.image;
+  if (app.cpuLimit || app.memoryLimit) {
+    spec.resources = {};
+    if (app.cpuLimit) spec.resources.cpu = app.cpuLimit;
+    if (app.memoryLimit) spec.resources.memory = app.memoryLimit;
+  }
   const env = envSpec(app.env);
   if (env.length) spec.env = env;
   if (app.secretKeys?.length) spec.envFrom = [{ secretRef: { name: `${app.slug}-env` } }];

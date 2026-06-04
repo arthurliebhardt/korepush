@@ -71,6 +71,8 @@ export async function createAppAction(input: {
   port?: number;
   env?: EnvVarInput[];
   attachDatabaseId?: string;
+  cpuLimit?: string;
+  memoryLimit?: string;
 }): Promise<{ ok: true; appSlug: string } | { ok: false; error: string }> {
   await assertOwnsSpace(input.spaceSlug);
   try {
@@ -81,6 +83,8 @@ export async function createAppAction(input: {
       name: input.name,
       image: input.image,
       port: input.port,
+      cpuLimit: input.cpuLimit || undefined,
+      memoryLimit: input.memoryLimit || undefined,
     });
     // Env (incl. secrets stored in a k8s Secret) + DB attach are applied after
     // create; the operator re-reconciles the workload with them.
@@ -161,6 +165,8 @@ export async function importComposeAction(
         name: app.service,
         image: app.image,
         port: app.port,
+        cpuLimit: app.cpuLimit,
+        memoryLimit: app.memoryLimit,
       });
       if (split) await setAppEnv(spaceSlug, created.slug, split);
       if (app.attachDatabaseService) {

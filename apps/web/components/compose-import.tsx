@@ -173,6 +173,16 @@ export function ComposeImport({ spaceSlug }: { spaceSlug: string }) {
                     <span className="font-mono text-xs text-muted">
                       {a.image} :{a.port}
                     </span>
+                    {(a.cpuLimit || a.memoryLimit) && (
+                      <span className="text-xs text-muted">
+                        {[
+                          a.cpuLimit && `cpu ${a.cpuLimit}`,
+                          a.memoryLimit && `mem ${a.memoryLimit}`,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </span>
+                    )}
                     {a.attachDatabaseService && (
                       <span className="text-xs text-success-fg">
                         → {a.attachDatabaseService} as $DATABASE_URL

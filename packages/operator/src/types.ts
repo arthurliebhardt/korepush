@@ -9,6 +9,7 @@ export type KoreAppSpec = {
   image?: string;
   port: number;
   replicas?: number;
+  resources?: { cpu?: string; memory?: string };
   env?: EnvVarSpec[];
   envFrom?: { secretRef: { name: string } }[];
   domains?: { host: string; staging?: boolean }[];

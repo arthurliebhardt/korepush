@@ -58,6 +58,8 @@ export type CreateAppInput = {
   image: string;
   port?: number;
   env?: Record<string, string>;
+  cpuLimit?: string;
+  memoryLimit?: string;
 };
 
 export async function createApp(input: CreateAppInput) {
@@ -77,6 +79,8 @@ export async function createApp(input: CreateAppInput) {
       image: input.image,
       port: input.port ?? 80,
       env: input.env ?? {},
+      cpuLimit: input.cpuLimit ?? null,
+      memoryLimit: input.memoryLimit ?? null,
       status: "provisioning",
     })
     .returning()

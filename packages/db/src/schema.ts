@@ -136,6 +136,10 @@ export const apps = pgTable("apps", {
   rootDir: text("root_dir"),
   port: integer("port").default(3000).notNull(),
   replicas: integer("replicas").default(1).notNull(),
+  // Optional container resource LIMITS (null = operator defaults 500m/256Mi).
+  // k8s quantity strings, e.g. "1", "500m" / "512Mi", "1Gi".
+  cpuLimit: text("cpu_limit"),
+  memoryLimit: text("memory_limit"),
   // Plain (non-secret) env vars, inlined into the Deployment pod spec.
   env: jsonb("env").$type<Record<string, string>>().default({}).notNull(),
   // Names of secret env vars; their VALUES live only in the per-app k8s Secret

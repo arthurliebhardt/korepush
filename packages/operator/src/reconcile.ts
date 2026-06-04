@@ -118,7 +118,10 @@ export async function reconcile(namespace: string, name: string): Promise<void> 
     ...(envFrom.length ? { envFrom } : {}),
     resources: {
       requests: { cpu: "50m", memory: "64Mi" },
-      limits: { cpu: "500m", memory: "256Mi" },
+      limits: {
+        cpu: spec.resources?.cpu ?? "500m",
+        memory: spec.resources?.memory ?? "256Mi",
+      },
     },
   };
   const replicas = spec.replicas ?? 1;

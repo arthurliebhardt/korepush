@@ -15,6 +15,8 @@ export type ComposeAppPlan = {
   port: number;
   env: ComposeEnvRow[];
   replicas?: number;
+  cpuLimit?: string;
+  memoryLimit?: string;
   attachDatabaseService?: string; // compose name of the postgres it should use
   warnings: string[];
 };
@@ -231,7 +233,17 @@ export function parseComposePlan(yamlText: string): ComposePlan {
     if (svc.command || svc.entrypoint) w.push("`command`/`entrypoint` overrides are ignored — the image's own entrypoint runs.");
     if (svc.healthcheck) w.push("`healthcheck` is ignored — korepush uses its own readiness checks.");
     const deploy = (svc.deploy ?? {}) as Record<string, unknown>;
-    if (deploy.resources) w.push("`deploy.resources` is ignored — default limits apply (heavy services may need more).");
+    const limits = ((deploy.resources as Record<string, unknown>)?.limits ??
+      {}) as Record<string, unknown>;
+    const cpuLimit = limits.cpus != null ? String(limits.cpus) : undefined;
+    const memoryLimit = limits.memory != null ? String(limits.memory) : undefined;
+    if (
+      (deploy.resources as Record<string, unknown>)?.reservations &&
+      !cpuLimit &&
+      !memoryLimit
+    ) {
+      w.push("`deploy.resources.reservations` (requests) aren't applied — set resource limits instead.");
+    }
     if (STATEFUL_RE.test(image)) w.push("No managed engine for this datastore — it runs ephemerally with no persistence or backups.");
 
     const replicas =
@@ -244,6 +256,8 @@ export function parseComposePlan(yamlText: string): ComposePlan {
       port,
       env,
       replicas,
+      cpuLimit,
+      memoryLimit,
       attachDatabaseService,
       warnings: w,
     });

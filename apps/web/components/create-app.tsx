@@ -51,6 +51,8 @@ export function CreateApp({
   const [startCmd, setStartCmd] = useState("");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [attachDbId, setAttachDbId] = useState("");
+  const [cpuLimit, setCpuLimit] = useState("");
+  const [memoryLimit, setMemoryLimit] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -63,6 +65,8 @@ export function CreateApp({
     setStartCmd("");
     setShowAdvanced(false);
     setAttachDbId("");
+    setCpuLimit("");
+    setMemoryLimit("");
     setError(null);
   }
 
@@ -133,6 +137,8 @@ export function CreateApp({
           .filter((r) => r.key.trim())
           .map((r) => ({ key: r.key.trim(), value: r.value, secret: r.secret })),
         attachDatabaseId: attachDbId || undefined,
+        cpuLimit: cpuLimit.trim() || undefined,
+        memoryLimit: memoryLimit.trim() || undefined,
       });
       if (!res.ok) return setError(res.error);
       router.push(`/spaces/${spaceSlug}/apps/${res.appSlug}`);
@@ -314,6 +320,29 @@ export function CreateApp({
 
           {envSection}
           {dbSection}
+
+          <div>
+            <div className="mb-1.5 text-sm font-medium">
+              Resources{" "}
+              <span className="text-xs font-normal text-muted">
+                (optional limits)
+              </span>
+            </div>
+            <div className="flex gap-2">
+              <input
+                className="input w-36 font-mono text-xs"
+                placeholder="CPU — 500m"
+                value={cpuLimit}
+                onChange={(e) => setCpuLimit(e.target.value)}
+              />
+              <input
+                className="input w-36 font-mono text-xs"
+                placeholder="Memory — 512Mi"
+                value={memoryLimit}
+                onChange={(e) => setMemoryLimit(e.target.value)}
+              />
+            </div>
+          </div>
 
           {error && <p className="text-sm text-danger">{error}</p>}
           <div className="flex gap-2">
