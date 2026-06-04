@@ -145,6 +145,7 @@ function Chart({
             <YAxis
               domain={[0, top * divisor]}
               ticks={ticksDisplay.map((t) => t * divisor)}
+              interval={0}
               tickFormatter={(v) => trim((v as number) / divisor)}
               width={36}
               stroke="var(--muted)"
