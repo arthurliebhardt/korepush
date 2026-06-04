@@ -35,7 +35,6 @@ export function SpaceDomains({
   const [open, setOpen] = useState(false);
   const [appSlug, setAppSlug] = useState(apps[0]?.slug ?? "");
   const [host, setHost] = useState("");
-  const [useStaging, setUseStaging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -54,13 +53,12 @@ export function SpaceDomains({
       return;
     }
     startTransition(async () => {
-      const res = await addAppDomainAction(spaceSlug, appSlug, added, useStaging);
+      const res = await addAppDomainAction(spaceSlug, appSlug, added);
       if (!res.ok) {
         setError(res.error);
         return;
       }
       setHost("");
-      setUseStaging(false);
       setOpen(false);
       toast.success(`${added} added — point its DNS here`);
       router.refresh();
@@ -134,36 +132,23 @@ export function SpaceDomains({
               />
             </div>
           </div>
-          <div className="flex items-center justify-between gap-3">
-            <label
-              className="flex items-center gap-1.5 text-xs text-muted"
-              title="Use Let's Encrypt staging (untrusted cert, for testing)"
+          <div className="flex justify-end gap-2">
+            <button
+              className="btn-ghost"
+              onClick={() => {
+                setOpen(false);
+                setError(null);
+              }}
             >
-              <input
-                type="checkbox"
-                checked={useStaging}
-                onChange={(e) => setUseStaging(e.target.checked)}
-              />
-              Use staging certificate
-            </label>
-            <div className="flex gap-2">
-              <button
-                className="btn-ghost"
-                onClick={() => {
-                  setOpen(false);
-                  setError(null);
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                className="btn-primary"
-                disabled={pending || !host.trim()}
-                onClick={add}
-              >
-                {pending ? "Adding…" : "Add domain"}
-              </button>
-            </div>
+              Cancel
+            </button>
+            <button
+              className="btn-primary"
+              disabled={pending || !host.trim()}
+              onClick={add}
+            >
+              {pending ? "Adding…" : "Add domain"}
+            </button>
           </div>
           {error && <p className="text-sm text-danger">{error}</p>}
           <p className="text-xs text-muted">

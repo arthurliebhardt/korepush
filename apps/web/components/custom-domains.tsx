@@ -32,7 +32,6 @@ export function CustomDomains({
 }) {
   const [domains, setDomains] = useState<AppDomainView[]>(initial);
   const [host, setHost] = useState("");
-  const [useStaging, setUseStaging] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const domainsRef = useRef(domains);
@@ -58,13 +57,12 @@ export function CustomDomains({
     setError(null);
     const added = host;
     startTransition(async () => {
-      const res = await addAppDomainAction(spaceSlug, appSlug, host, useStaging);
+      const res = await addAppDomainAction(spaceSlug, appSlug, host);
       if (!res.ok) {
         setError(res.error);
         return;
       }
       setHost("");
-      setUseStaging(false);
       setDomains(await refreshAppDomainsAction(spaceSlug, appSlug));
       toast.success(`${added} added — point its DNS here`);
     });
@@ -145,14 +143,6 @@ export function CustomDomains({
           value={host}
           onChange={(e) => setHost(e.target.value)}
         />
-        <label className="flex items-center gap-1 text-xs text-muted" title="Use Let's Encrypt staging (untrusted cert, for testing)">
-          <input
-            type="checkbox"
-            checked={useStaging}
-            onChange={(e) => setUseStaging(e.target.checked)}
-          />
-          staging
-        </label>
         <button className="btn-primary" disabled={pending || !host} onClick={add}>
           {pending ? "…" : "Add"}
         </button>
