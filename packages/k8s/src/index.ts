@@ -103,4 +103,12 @@ export {
   listAllDomains,
 } from "./overview";
 export { slugify } from "./util";
+export { parseComposePlan } from "./compose";
+export type {
+  ComposePlan,
+  ComposeAppPlan,
+  ComposeDatabasePlan,
+  ComposeEnvRow,
+  ComposeSkip,
+} from "./compose";
 export { getKoreAppPhase, listKoreAppPhases, phaseToStatus } from "./koreapp";

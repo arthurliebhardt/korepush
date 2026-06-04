@@ -6,6 +6,9 @@ import {
   createSpace,
   deleteSpace,
   createApp,
+  listApps,
+  listDatabases,
+  parseComposePlan,
   deleteApp,
   createGitApp,
   addEnvironment,
@@ -94,6 +97,84 @@ export async function createAppAction(input: {
   } catch (err) {
     return { ok: false, error: errorMessage(err) };
   }
+}
+
+/** Parse a docker-compose file into a preview plan (no side effects). */
+export async function previewComposeAction(spaceSlug: string, yaml: string) {
+  const { space } = await assertOwnsSpace(spaceSlug);
+  const plan = parseComposePlan(yaml);
+  if (!plan.ok) return { ...plan, collisions: [] as string[] };
+  const [apps, dbs] = await Promise.all([
+    listApps(space.id),
+    listDatabases(space.id),
+  ]);
+  const existing = new Set<string>([
+    ...apps.map((a) => a.slug),
+    ...dbs.map((d) => d.slug),
+  ]);
+  const collisions = [...plan.apps, ...plan.databases]
+    .filter((x) => existing.has(x.slug))
+    .map((x) => x.slug);
+  return { ...plan, collisions };
+}
+
+export type ComposeImportResult = {
+  service: string;
+  kind: "app" | "database";
+  status: "created" | "failed";
+  slug?: string;
+  error?: string;
+};
+
+/** Fan a compose file out into apps + Postgres databases (re-parsed server-side). */
+export async function importComposeAction(
+  spaceSlug: string,
+  yaml: string,
+): Promise<{ ok: boolean; error?: string; results: ComposeImportResult[] }> {
+  await assertOwnsSpace(spaceSlug);
+  const plan = parseComposePlan(yaml); // never trust a client-sent plan
+  if (!plan.ok) return { ok: false, error: plan.error, results: [] };
+
+  const results: ComposeImportResult[] = [];
+  const dbIdByService = new Map<string, string>();
+
+  // Databases first so app attaches have a target.
+  for (const db of plan.databases) {
+    try {
+      const row = await createDatabase({ spaceSlug, name: db.name });
+      dbIdByService.set(db.service, row.id);
+      results.push({ service: db.service, kind: "database", status: "created", slug: row.slug });
+    } catch (err) {
+      results.push({ service: db.service, kind: "database", status: "failed", error: errorMessage(err) });
+    }
+  }
+
+  for (const app of plan.apps) {
+    try {
+      const split = app.env.length ? splitEnvVars(app.env) : null;
+      if (split && "error" in split) {
+        results.push({ service: app.service, kind: "app", status: "failed", error: split.error });
+        continue;
+      }
+      const created = await createApp({
+        spaceSlug,
+        name: app.service,
+        image: app.image,
+        port: app.port,
+      });
+      if (split) await setAppEnv(spaceSlug, created.slug, split);
+      if (app.attachDatabaseService) {
+        const dbId = dbIdByService.get(app.attachDatabaseService);
+        if (dbId) await attachDatabase(spaceSlug, created.slug, dbId).catch(() => {});
+      }
+      results.push({ service: app.service, kind: "app", status: "created", slug: created.slug });
+    } catch (err) {
+      results.push({ service: app.service, kind: "app", status: "failed", error: errorMessage(err) });
+    }
+  }
+
+  revalidatePath(`/spaces/${spaceSlug}`);
+  return { ok: results.some((r) => r.status === "created"), results };
 }
 
 export async function deleteAppAction(

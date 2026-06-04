@@ -7,8 +7,9 @@ import {
   createGitAppAction,
   detectProjectAction,
 } from "@/app/actions";
+import { ComposeImport } from "@/components/compose-import";
 
-type Mode = "image" | "git";
+type Mode = "image" | "git" | "compose";
 type Repo = { fullName: string; cloneUrl: string; defaultBranch: string };
 type Detection = {
   framework: string;
@@ -271,9 +272,12 @@ export function CreateApp({
       <div className="flex gap-1 rounded-lg border border-border p-1 w-fit">
         {tab("git", "From Git repo")}
         {tab("image", "From image")}
+        {tab("compose", "From Compose")}
       </div>
 
-      {mode === "image" ? (
+      {mode === "compose" ? (
+        <ComposeImport spaceSlug={spaceSlug} />
+      ) : mode === "image" ? (
         <form onSubmit={submitImage} className="space-y-3">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
             <div>

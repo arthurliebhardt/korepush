@@ -16,7 +16,8 @@
     "@korepush/db": "workspace:*",
     "@kubernetes/client-node": "^1.4.0",
     "drizzle-orm": "^0.45.2",
-    "postgres": "^3.4.9"
+    "postgres": "^3.4.9",
+    "yaml": "^2.6.1"
   },
   "devDependencies": {
     "@korepush/eslint-config": "workspace:*",
