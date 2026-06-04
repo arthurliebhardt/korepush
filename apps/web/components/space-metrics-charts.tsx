@@ -22,7 +22,7 @@ type Series = {
 
 function fmtCores(n: number | null): string {
   if (n == null) return "—";
-  return n >= 1 ? `${n.toFixed(2)} cores` : `${Math.round(n * 1000)} m`;
+  return n >= 1 ? `${n.toFixed(2)} cores` : `${Math.round(n * 1000)} mCPU`;
 }
 function fmtBytes(n: number | null): string {
   if (n == null) return "—";

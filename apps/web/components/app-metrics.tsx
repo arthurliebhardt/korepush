@@ -33,7 +33,7 @@ const PALETTE = ["#34d399", "#60a5fa", "#fbbf24", "#f87171", "#a78bfa"];
 function fmtCores(n: number | null): string {
   if (n == null) return "—";
   if (n >= 1) return `${n.toFixed(2)} cores`;
-  return `${Math.round(n * 1000)} m`;
+  return `${Math.round(n * 1000)} mCPU`;
 }
 function fmtBytes(n: number | null): string {
   if (n == null) return "—";
