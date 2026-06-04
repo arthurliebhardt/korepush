@@ -164,7 +164,7 @@ export function parseComposePlan(yamlText: string): ComposePlan {
     if (ports.length > 1) w.push(`Only one port is supported — using ${port}, ignoring ${ports.slice(1).join(", ")}.`);
 
     // Env (mark secrets heuristically)
-    const env: ComposeEnvRow[] = normalizeEnv(svc.environment).map((e) => ({
+    let env: ComposeEnvRow[] = normalizeEnv(svc.environment).map((e) => ({
       key: e.key,
       value: e.value,
       secret: isSecretKey(e.key),
@@ -184,6 +184,27 @@ export function parseComposePlan(yamlText: string): ComposePlan {
           attachDatabaseService = ref;
           break;
         }
+      }
+    }
+
+    // korepush injects DATABASE_URL for the attached db, so drop the compose
+    // connection string to avoid a conflicting duplicate.
+    if (attachDatabaseService) {
+      const dbName = attachDatabaseService;
+      const dropped: string[] = [];
+      env = env.filter((e) => {
+        const isConn =
+          e.key.toUpperCase() === "DATABASE_URL" ||
+          (/:\/\//.test(e.value) &&
+            new RegExp(`@?${dbName}(:|/)`, "i").test(e.value));
+        if (isConn) {
+          dropped.push(e.key);
+          return false;
+        }
+        return true;
+      });
+      if (dropped.length) {
+        w.push(`Dropped ${dropped.join(", ")} — korepush injects DATABASE_URL for the "${slugFor(dbName)}" database.`);
       }
     }
 
