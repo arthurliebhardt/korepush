@@ -23,7 +23,7 @@ export function Sidebar({
 }) {
   return (
     <aside className="hidden w-60 shrink-0 flex-col border-r border-border bg-bg-subtle md:flex">
-      <div className="border-b border-border p-2">
+      <div className="flex h-14 items-center border-b border-border px-2">
         <SpaceSwitcher spaces={spaces} activeSlug={space?.slug} />
       </div>
 
@@ -34,14 +34,14 @@ export function Sidebar({
         <ClusterStatus ok={clusterOk} />
         <Link
           href="/settings"
-          className="flex items-center gap-2.5 rounded-md px-1 py-1 text-sm text-muted transition-colors hover:text-foreground"
+          className="flex items-center gap-2.5 rounded-md px-1 py-1 text-sm text-muted transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg-subtle"
         >
           <span className="text-fg-subtle">
             <GearIcon />
           </span>
           Platform settings
         </Link>
-        <div className="flex items-center justify-between gap-2 pt-1">
+        <div className="flex items-center justify-between gap-2">
           <p className="min-w-0 truncate px-1 text-xs text-muted" title={email}>
             {email}
           </p>
@@ -55,7 +55,7 @@ export function Sidebar({
 export function ClusterStatus({ ok }: { ok: boolean }) {
   return (
     <span
-      className={`flex items-center gap-1.5 px-1 text-xs ${
+      className={`flex items-center gap-2.5 px-1 text-xs ${
         ok ? "text-success-fg" : "text-danger-fg"
       }`}
       title={ok ? "Cluster connected" : "Cluster unreachable"}

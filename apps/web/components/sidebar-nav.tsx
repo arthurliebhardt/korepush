@@ -39,7 +39,7 @@ export function SidebarNav({
               <Link
                 key={s.slug}
                 href={`/spaces/${s.slug}`}
-                className={`flex items-center gap-2.5 rounded-md px-3 py-1.5 text-sm transition-colors ${
+                className={`flex items-center gap-2.5 rounded-md px-3 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg-subtle ${
                   active
                     ? "bg-surface text-foreground"
                     : "text-muted hover:bg-surface-2 hover:text-foreground"
@@ -95,7 +95,7 @@ export function SidebarNav({
         <Link
           key={href}
           href={href}
-          className={`relative flex items-center gap-2.5 rounded-md px-3 py-1.5 text-sm transition-colors ${
+          className={`relative flex items-center gap-2.5 rounded-md px-3 py-1.5 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg-subtle ${
             active
               ? "bg-surface text-foreground"
               : "text-muted hover:bg-surface-2 hover:text-foreground"

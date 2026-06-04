@@ -46,12 +46,12 @@ export function CrumbSwitcher({
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex min-w-0 items-center gap-1 truncate font-medium text-foreground transition-colors hover:text-muted"
+        className="group flex min-w-0 items-center gap-1 truncate rounded-sm font-medium text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg-subtle"
         aria-haspopup="menu"
         aria-expanded={open}
       >
         <span className="truncate">{label}</span>
-        <span className="shrink-0 text-fg-subtle">
+        <span className="shrink-0 text-fg-subtle transition-colors group-hover:text-muted">
           <ChevronDownIcon />
         </span>
       </button>
@@ -69,7 +69,9 @@ export function CrumbSwitcher({
                   href={it.href}
                   onClick={() => setOpen(false)}
                   className={`flex items-center gap-2 rounded-md px-2.5 py-1.5 text-sm transition-colors hover:bg-surface-2 ${
-                    it.active ? "text-foreground" : "text-muted hover:text-foreground"
+                    it.active
+                      ? "bg-surface-2 text-foreground"
+                      : "text-muted hover:text-foreground"
                   }`}
                 >
                   <span className="min-w-0 flex-1 truncate">{it.label}</span>

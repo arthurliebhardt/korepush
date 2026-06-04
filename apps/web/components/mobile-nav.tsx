@@ -26,7 +26,7 @@ export function MobileNav({
     <div className="md:hidden">
       <button
         onClick={() => setOpen(true)}
-        className="flex size-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-2 hover:text-foreground"
+        className="flex size-8 items-center justify-center rounded-md text-muted transition-colors hover:bg-surface-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg-subtle"
         aria-label="Open navigation"
       >
         <MenuIcon />
@@ -45,14 +45,14 @@ export function MobileNav({
               if ((e.target as HTMLElement).closest("a")) setOpen(false);
             }}
           >
-            <div className="border-b border-border p-2">
+            <div className="flex h-14 items-center border-b border-border px-2">
               <SpaceSwitcher spaces={spaces} activeSlug={space?.slug} />
             </div>
             <SidebarNav space={space} spaces={spaces} />
             <div className="space-y-2.5 border-t border-border p-3">
               <SidebarSearch />
               <span
-                className={`flex items-center gap-1.5 px-1 text-xs ${
+                className={`flex items-center gap-2.5 px-1 text-xs ${
                   clusterOk ? "text-success-fg" : "text-danger-fg"
                 }`}
               >
@@ -62,7 +62,7 @@ export function MobileNav({
                 />
                 {clusterOk ? "Cluster connected" : "Cluster unreachable"}
               </span>
-              <div className="flex items-center justify-between gap-2 pt-1">
+              <div className="flex items-center justify-between gap-2">
                 <p className="min-w-0 truncate px-1 text-xs text-muted">{email}</p>
                 <SignOutButton />
               </div>

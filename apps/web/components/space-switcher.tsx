@@ -59,10 +59,10 @@ export function SpaceSwitcher({
     : spaces;
 
   return (
-    <div ref={ref} className="relative">
+    <div ref={ref} className="relative w-full">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-surface-2"
+        className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg-subtle"
         aria-haspopup="menu"
         aria-expanded={open}
       >
@@ -76,7 +76,7 @@ export function SpaceSwitcher({
           <span className="block truncate text-sm font-medium text-foreground">
             {active ? active.name : "korepush"}
           </span>
-          <span className="block truncate text-[11px] text-fg-subtle">
+          <span className="block truncate text-xs text-fg-subtle">
             {active ? "Space" : "self-hosted"}
           </span>
         </span>
@@ -97,7 +97,7 @@ export function SpaceSwitcher({
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search spaces…"
-              className="w-full border-b border-border bg-transparent px-3 py-2 text-sm outline-none placeholder:text-fg-subtle"
+              className="w-full border-b border-border bg-transparent px-3 py-2 text-sm outline-none focus:border-ring placeholder:text-fg-subtle"
             />
           )}
           <ul className="max-h-64 overflow-auto py-1">
@@ -121,7 +121,9 @@ export function SpaceSwitcher({
                     href={`/spaces/${s.slug}`}
                     onClick={close}
                     className={`flex items-center gap-2 px-3 py-1.5 text-sm transition-colors hover:bg-surface-2 ${
-                      isActive ? "text-foreground" : "text-muted hover:text-foreground"
+                      isActive
+                        ? "bg-surface-2 text-foreground"
+                        : "text-muted hover:text-foreground"
                     }`}
                   >
                     <span

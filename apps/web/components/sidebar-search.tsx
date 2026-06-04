@@ -8,7 +8,7 @@ export function SidebarSearch() {
   return (
     <button
       onClick={() => openCommandPalette()}
-      className="flex w-full items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-fg-subtle transition-colors hover:border-border-strong"
+      className="flex w-full items-center gap-2.5 rounded-md border border-border bg-surface px-3 py-1.5 text-sm text-fg-subtle transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg-subtle"
     >
       <SearchIcon />
       Find…
