@@ -6,9 +6,12 @@ import { slugify, isUniqueViolation } from "./util";
 import {
   createBuildJob,
   getBuildJobPhase,
+  getBuildPodName,
   buildImageRef,
   buildJobName,
+  BUILD_NS,
 } from "./build";
+import { getPodLogs } from "./pods";
 // Routing + TLS leaf helpers live in the DB-free ./routing module so the
 // operator can share them without importing this (DB-coupled) file.
 import {
@@ -487,9 +490,20 @@ export async function finalizeBuild(deploymentId: string): Promise<string> {
     .limit(1);
   if (!space) return dep.status;
 
-  const phase = await getBuildJobPhase(buildJobName(app.slug, dep.id.slice(0, 8)));
+  const jobName = buildJobName(app.slug, dep.id.slice(0, 8));
+  const phase = await getBuildJobPhase(jobName);
+
+  // Capture the build pod's logs once, at the terminal transition — the Job is
+  // still within its TTL here, so this is the last chance to keep them.
+  const captureBuildLog = async (): Promise<string | null> => {
+    const pod = await getBuildPodName(jobName).catch(() => null);
+    if (!pod) return null;
+    const raw = await getPodLogs(BUILD_NS, pod, "build").catch(() => null);
+    return raw ? capBuildLog(raw) : null;
+  };
 
   if (phase === "succeeded") {
+    const buildLog = await captureBuildLog();
     await db
       .update(schema.apps)
       .set({ image: dep.image, status: "running", updatedAt: new Date() })
@@ -497,7 +511,11 @@ export async function finalizeBuild(deploymentId: string): Promise<string> {
     await patchKoreApp(space.namespace, app.slug, { spec: { image: dep.image } });
     await db
       .update(schema.deployments)
-      .set({ status: "succeeded", finishedAt: new Date() })
+      .set({
+        status: "succeeded",
+        finishedAt: new Date(),
+        ...(buildLog ? { buildLog } : {}),
+      })
       .where(eq(schema.deployments.id, dep.id));
     return "succeeded";
   }
@@ -507,17 +525,28 @@ export async function finalizeBuild(deploymentId: string): Promise<string> {
     (phase === "unknown" &&
       Date.now() - new Date(dep.createdAt).getTime() > BUILD_STALE_MS)
   ) {
+    const buildLog = await captureBuildLog();
     await db
       .update(schema.apps)
       .set({ status: "failed", updatedAt: new Date() })
       .where(eq(schema.apps.id, app.id));
     await db
       .update(schema.deployments)
-      .set({ status: "failed", finishedAt: new Date() })
+      .set({
+        status: "failed",
+        finishedAt: new Date(),
+        ...(buildLog ? { buildLog } : {}),
+      })
       .where(eq(schema.deployments.id, dep.id));
     return "failed";
   }
   return dep.status;
+}
+
+// Cap a captured build log to the last N bytes (keep the tail — the useful end
+// of a build), so a giant BuildKit transcript can't bloat the row.
+function capBuildLog(s: string, maxBytes = 256 * 1024): string {
+  return s.length > maxBytes ? s.slice(s.length - maxBytes) : s;
 }
 
 /**

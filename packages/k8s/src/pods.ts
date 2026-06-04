@@ -29,6 +29,27 @@ export async function getAppPodName(
   return sorted[0]?.metadata?.name ?? null;
 }
 
+/** Read a pod's whole log (non-streaming) as a string, capped to tailLines. */
+export async function getPodLogs(
+  namespace: string,
+  podName: string,
+  container = "",
+  tailLines = 5000,
+): Promise<string | null> {
+  try {
+    const { core } = k8sClients();
+    const res = await core.readNamespacedPodLog({
+      namespace,
+      name: podName,
+      container: container || undefined,
+      tailLines,
+    });
+    return typeof res === "string" ? res : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Stream a pod's logs into a Writable. Returns an AbortController to stop it.
  * Encapsulates the Kubernetes client so consumers never import it directly.

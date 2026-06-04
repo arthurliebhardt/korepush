@@ -210,6 +210,9 @@ export const deployments = pgTable("deployments", {
   trigger: text("trigger").default("manual").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   finishedAt: timestamp("finished_at"),
+  // Captured build-pod log tail, stored when the build finalizes so a finished
+  // deployment can show its logs after the build Job is garbage-collected.
+  buildLog: text("build_log"),
 }, (t) => [
   // deployments is the one unbounded table (a row per build/deploy/rollback) and
   // is always queried by appId ordered by createdAt desc (build history, latest

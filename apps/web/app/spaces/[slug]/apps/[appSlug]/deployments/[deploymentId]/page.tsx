@@ -12,6 +12,7 @@ import {
 import { AppShell } from "@/components/app-shell";
 import { StatusBadge } from "@/components/status-badge";
 import { BuildLogs } from "@/components/build-logs";
+import { LogViewer } from "@/components/ui/log-viewer";
 import { RollbackButton } from "@/components/rollback-button";
 import { RedeployButton } from "@/components/redeploy-button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -193,6 +194,11 @@ export default async function DeploymentDetailPage({
               appSlug={app.slug}
               deploymentId={dep.id}
             />
+          ) : dep.buildLog ? (
+            <LogViewer
+              lines={dep.buildLog.split("\n")}
+              filename={`build-${app.slug}-${dep.id.slice(0, 8)}.txt`}
+            />
           ) : isRollback ? (
             <EmptyState
               title="No build for this deployment"
@@ -205,8 +211,8 @@ export default async function DeploymentDetailPage({
             />
           ) : (
             <EmptyState
-              title="Build logs aren't retained"
-              description="Logs stream live while a build runs; they aren't stored after it finishes. Watch a build live from the Deployments tab while it's in progress."
+              title="No stored build logs"
+              description="This build finished before log capture was added, or its build pod was already cleaned up. New builds store their logs automatically."
             />
           )}
         </section>
