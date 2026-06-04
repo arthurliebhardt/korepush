@@ -74,11 +74,6 @@ export function CreateApp({
       reset();
     }
   }
-  function finishImage() {
-    if (embedded) router.push(`/spaces/${spaceSlug}/apps`);
-    else setOpen(false);
-    router.refresh();
-  }
 
   function pickRepo(fullName: string) {
     const r = repos.find((x) => x.fullName === fullName);
@@ -133,9 +128,13 @@ export function CreateApp({
         name,
         image,
         port: Number(port) || 80,
+        env: envRows
+          .filter((r) => r.key.trim())
+          .map((r) => ({ key: r.key.trim(), value: r.value, secret: r.secret })),
+        attachDatabaseId: attachDbId || undefined,
       });
       if (!res.ok) return setError(res.error);
-      finishImage();
+      router.push(`/spaces/${spaceSlug}/apps/${res.appSlug}`);
     });
   }
 
@@ -190,6 +189,83 @@ export function CreateApp({
   const railpackOverridable =
     detection && detection.builder === "railpack" && !detection.hasCommittedConfig;
 
+  // Shared by the image form and the Git configure step.
+  const envSection = (
+    <div>
+      <div className="mb-1.5 text-sm font-medium">Environment variables</div>
+      {envRows.length === 0 ? (
+        <p className="text-xs text-muted">None — add any your app needs.</p>
+      ) : (
+        <div className="space-y-2">
+          {envRows.map((r) => (
+            <div key={r.id} className="flex items-center gap-2">
+              <input
+                className="input w-1/3 font-mono text-xs"
+                placeholder="KEY"
+                value={r.key}
+                onChange={(e) => updateEnvRow(r.id, { key: e.target.value })}
+              />
+              <input
+                className="input flex-1 font-mono text-xs"
+                type={r.secret ? "password" : "text"}
+                placeholder="value"
+                value={r.value}
+                onChange={(e) => updateEnvRow(r.id, { value: e.target.value })}
+              />
+              <label className="flex items-center gap-1 text-xs text-muted">
+                <input
+                  type="checkbox"
+                  checked={r.secret}
+                  onChange={(e) =>
+                    updateEnvRow(r.id, { secret: e.target.checked })
+                  }
+                />
+                secret
+              </label>
+              <button
+                type="button"
+                className="text-muted hover:text-danger"
+                onClick={() => removeEnvRow(r.id)}
+                aria-label="Remove"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+      <button
+        type="button"
+        className="btn-ghost mt-2 text-xs"
+        onClick={addEnvRow}
+      >
+        + Add variable
+      </button>
+    </div>
+  );
+
+  const dbSection = databases.length > 0 && (
+    <div>
+      <div className="mb-1.5 text-sm font-medium">Database</div>
+      <select
+        className="input w-full sm:w-72"
+        value={attachDbId}
+        onChange={(e) => setAttachDbId(e.target.value)}
+      >
+        <option value="">Don&apos;t attach a database</option>
+        {databases.map((d) => (
+          <option key={d.id} value={d.id}>
+            Attach {d.name}
+          </option>
+        ))}
+      </select>
+      <p className="mt-1 text-xs text-muted">
+        Its connection string is injected as{" "}
+        <code className="font-mono text-foreground">$DATABASE_URL</code>.
+      </p>
+    </div>
+  );
+
   return (
     <div className="card space-y-4">
       <div className="flex gap-1 rounded-lg border border-border p-1 w-fit">
@@ -231,6 +307,10 @@ export function CreateApp({
               />
             </div>
           </div>
+
+          {envSection}
+          {dbSection}
+
           {error && <p className="text-sm text-danger">{error}</p>}
           <div className="flex gap-2">
             <button type="submit" className="btn-primary" disabled={pending}>
@@ -369,82 +449,8 @@ export function CreateApp({
             </div>
           </div>
 
-          <div>
-            <div className="mb-1.5 text-sm font-medium">Environment variables</div>
-            {envRows.length === 0 ? (
-              <p className="text-xs text-muted">None — add any your app needs.</p>
-            ) : (
-              <div className="space-y-2">
-                {envRows.map((r) => (
-                  <div key={r.id} className="flex items-center gap-2">
-                    <input
-                      className="input w-1/3 font-mono text-xs"
-                      placeholder="KEY"
-                      value={r.key}
-                      onChange={(e) => updateEnvRow(r.id, { key: e.target.value })}
-                    />
-                    <input
-                      className="input flex-1 font-mono text-xs"
-                      type={r.secret ? "password" : "text"}
-                      placeholder="value"
-                      value={r.value}
-                      onChange={(e) =>
-                        updateEnvRow(r.id, { value: e.target.value })
-                      }
-                    />
-                    <label className="flex items-center gap-1 text-xs text-muted">
-                      <input
-                        type="checkbox"
-                        checked={r.secret}
-                        onChange={(e) =>
-                          updateEnvRow(r.id, { secret: e.target.checked })
-                        }
-                      />
-                      secret
-                    </label>
-                    <button
-                      type="button"
-                      className="text-muted hover:text-danger"
-                      onClick={() => removeEnvRow(r.id)}
-                      aria-label="Remove"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-            <button
-              type="button"
-              className="btn-ghost mt-2 text-xs"
-              onClick={addEnvRow}
-            >
-              + Add variable
-            </button>
-          </div>
-
-          {databases.length > 0 && (
-            <div>
-              <div className="mb-1.5 text-sm font-medium">Database</div>
-              <select
-                className="input w-full sm:w-72"
-                value={attachDbId}
-                onChange={(e) => setAttachDbId(e.target.value)}
-              >
-                <option value="">Don&apos;t attach a database</option>
-                {databases.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    Attach {d.name}
-                  </option>
-                ))}
-              </select>
-              <p className="mt-1 text-xs text-muted">
-                Its connection string is injected as{" "}
-                <code className="font-mono text-foreground">$DATABASE_URL</code>{" "}
-                before the first build.
-              </p>
-            </div>
-          )}
+          {envSection}
+          {dbSection}
 
           {railpackOverridable && (
             <div>

@@ -66,12 +66,31 @@ export async function createAppAction(input: {
   name: string;
   image: string;
   port?: number;
-}): Promise<ActionResult> {
+  env?: EnvVarInput[];
+  attachDatabaseId?: string;
+}): Promise<{ ok: true; appSlug: string } | { ok: false; error: string }> {
   await assertOwnsSpace(input.spaceSlug);
   try {
-    await createApp(input);
+    const split = input.env?.length ? splitEnvVars(input.env) : null;
+    if (split && "error" in split) return { ok: false, error: split.error };
+    const app = await createApp({
+      spaceSlug: input.spaceSlug,
+      name: input.name,
+      image: input.image,
+      port: input.port,
+    });
+    // Env (incl. secrets stored in a k8s Secret) + DB attach are applied after
+    // create; the operator re-reconciles the workload with them.
+    if (split) await setAppEnv(input.spaceSlug, app.slug, split);
+    if (input.attachDatabaseId) {
+      await attachDatabase(
+        input.spaceSlug,
+        app.slug,
+        input.attachDatabaseId,
+      ).catch(() => {});
+    }
     revalidatePath(`/spaces/${input.spaceSlug}`);
-    return { ok: true };
+    return { ok: true, appSlug: app.slug };
   } catch (err) {
     return { ok: false, error: errorMessage(err) };
   }
