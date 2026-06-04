@@ -13,9 +13,11 @@ import {
 export function CopyButton({
   text,
   label = "Copy connection string",
+  toastMsg = "Connection string copied",
 }: {
   text: string;
   label?: string;
+  toastMsg?: string;
 }) {
   const [copied, setCopied] = useState(false);
   return (
@@ -26,7 +28,7 @@ export function CopyButton({
           await navigator.clipboard.writeText(text);
           setCopied(true);
           setTimeout(() => setCopied(false), 1500);
-          toast.success("Connection string copied");
+          toast.success(toastMsg);
         } catch {
           toast.error("Couldn't copy to clipboard");
         }
