@@ -123,7 +123,8 @@ export function ComposeImport({ spaceSlug }: { spaceSlug: string }) {
         />
         <p className="mt-1 text-xs text-muted">
           Each service becomes a korepush app; a Postgres service becomes a
-          managed database. Builds and volumes aren&apos;t supported yet.
+          managed database, and named volumes become persistent disks. Builds
+          and host bind-mounts aren&apos;t supported.
         </p>
       </div>
 
@@ -186,6 +187,14 @@ export function ComposeImport({ spaceSlug }: { spaceSlug: string }) {
                     {a.attachDatabaseService && (
                       <span className="text-xs text-success-fg">
                         → {a.attachDatabaseService} as $DATABASE_URL
+                      </span>
+                    )}
+                    {a.volumes && a.volumes.length > 0 && (
+                      <span className="text-xs text-info-fg">
+                        vol:{" "}
+                        {a.volumes
+                          .map((v) => `${v.name}→${v.mountPath} (${v.size})`)
+                          .join(" · ")}
                       </span>
                     )}
                   </div>

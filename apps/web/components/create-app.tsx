@@ -53,6 +53,9 @@ export function CreateApp({
   const [attachDbId, setAttachDbId] = useState("");
   const [cpuLimit, setCpuLimit] = useState("");
   const [memoryLimit, setMemoryLimit] = useState("");
+  const [volumeRows, setVolumeRows] = useState<
+    Array<{ id: number; name: string; mountPath: string; size: string }>
+  >([]);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -67,6 +70,7 @@ export function CreateApp({
     setAttachDbId("");
     setCpuLimit("");
     setMemoryLimit("");
+    setVolumeRows([]);
     setError(null);
   }
 
@@ -124,6 +128,22 @@ export function CreateApp({
     setEnvRows((rs) => rs.filter((r) => r.id !== id));
   }
 
+  function addVolumeRow() {
+    setVolumeRows((rs) => [
+      ...rs,
+      { id: nextId.current++, name: "", mountPath: "", size: "1Gi" },
+    ]);
+  }
+  function updateVolumeRow(
+    id: number,
+    patch: Partial<{ name: string; mountPath: string; size: string }>,
+  ) {
+    setVolumeRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }
+  function removeVolumeRow(id: number) {
+    setVolumeRows((rs) => rs.filter((r) => r.id !== id));
+  }
+
   function submitImage(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -139,6 +159,13 @@ export function CreateApp({
         attachDatabaseId: attachDbId || undefined,
         cpuLimit: cpuLimit.trim() || undefined,
         memoryLimit: memoryLimit.trim() || undefined,
+        volumes: volumeRows
+          .filter((r) => r.name.trim() && r.mountPath.trim())
+          .map((r) => ({
+            name: r.name.trim(),
+            mountPath: r.mountPath.trim(),
+            size: r.size.trim() || "1Gi",
+          })),
       });
       if (!res.ok) return setError(res.error);
       router.push(`/spaces/${spaceSlug}/apps/${res.appSlug}`);
@@ -355,6 +382,66 @@ export function CreateApp({
                 onChange={(e) => setMemoryLimit(e.target.value)}
               />
             </div>
+          </div>
+
+          <div>
+            <div className="mb-1.5 text-sm font-medium">
+              Persistent volumes{" "}
+              <span className="text-xs font-normal text-muted">(optional)</span>
+            </div>
+            {volumeRows.length > 0 && (
+              <div className="mb-2 space-y-2">
+                {volumeRows.map((r) => (
+                  <div key={r.id} className="flex gap-2">
+                    <input
+                      className="input w-28 font-mono text-xs"
+                      placeholder="data"
+                      value={r.name}
+                      onChange={(e) =>
+                        updateVolumeRow(r.id, { name: e.target.value })
+                      }
+                    />
+                    <input
+                      className="input flex-1 font-mono text-xs"
+                      placeholder="/data"
+                      value={r.mountPath}
+                      onChange={(e) =>
+                        updateVolumeRow(r.id, { mountPath: e.target.value })
+                      }
+                    />
+                    <input
+                      className="input w-24 font-mono text-xs"
+                      placeholder="1Gi"
+                      value={r.size}
+                      onChange={(e) =>
+                        updateVolumeRow(r.id, { size: e.target.value })
+                      }
+                    />
+                    <button
+                      type="button"
+                      className="text-xs text-muted hover:text-danger"
+                      onClick={() => removeVolumeRow(r.id)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button
+              type="button"
+              className="text-xs text-muted underline hover:text-foreground"
+              onClick={addVolumeRow}
+            >
+              + Add volume
+            </button>
+            {volumeRows.length > 0 && (
+              <p className="mt-1.5 text-xs text-muted">
+                Stored on local-path (single-node, ReadWriteOnce). Apps with a
+                volume run 1 replica and redeploy with brief downtime (Recreate).
+                Size is fixed after creation; deleting the app destroys the data.
+              </p>
+            )}
           </div>
 
           {error && <p className="text-sm text-danger">{error}</p>}

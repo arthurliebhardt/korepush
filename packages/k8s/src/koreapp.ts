@@ -23,6 +23,11 @@ export type HealthcheckSpec = {
   retries?: number;
   startPeriod?: number;
 };
+export type VolumeSpec = {
+  name: string; // DNS-1123 label; also the pod-spec volume name + PVC suffix
+  mountPath: string; // absolute container path
+  size: string; // k8s integer quantity, e.g. "1Gi"
+};
 export type KoreAppSpec = {
   source: "image" | "git";
   image?: string;
@@ -38,6 +43,7 @@ export type KoreAppSpec = {
   envFrom?: { secretRef: { name: string } }[];
   domains?: { host: string; staging?: boolean }[];
   database?: { name: string; envVar?: string };
+  volumes?: VolumeSpec[];
 };
 
 // The subset of an `apps` row this module reads. (Git build config lives only on
@@ -56,6 +62,7 @@ type AppLike = {
   env: Record<string, string> | null;
   secretKeys: string[] | null;
   dbEnvVar: string;
+  volumes: VolumeSpec[] | null;
 };
 
 /** Env list from the plain-env map, preserving key order (matches the operator). */
@@ -82,6 +89,7 @@ export function buildKoreAppSpec(
   if (app.command?.length) spec.command = app.command;
   if (app.args?.length) spec.args = app.args;
   if (app.healthcheck?.test?.length) spec.healthcheck = app.healthcheck;
+  if (app.volumes?.length) spec.volumes = app.volumes;
   const env = envSpec(app.env);
   if (env.length) spec.env = env;
   if (app.secretKeys?.length) spec.envFrom = [{ secretRef: { name: `${app.slug}-env` } }];

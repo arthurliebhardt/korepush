@@ -31,6 +31,7 @@ import {
   createKoreApp,
   patchKoreApp,
   deleteKoreApp,
+  type VolumeSpec,
 } from "./koreapp";
 
 export { getNodeIp } from "./routing";
@@ -69,6 +70,7 @@ export type CreateAppInput = {
     retries?: number;
     startPeriod?: number;
   };
+  volumes?: VolumeSpec[];
 };
 
 export async function createApp(input: CreateAppInput) {
@@ -93,6 +95,7 @@ export async function createApp(input: CreateAppInput) {
       command: input.command ?? null,
       args: input.args ?? null,
       healthcheck: input.healthcheck ?? null,
+      volumes: input.volumes ?? [],
       status: "provisioning",
     })
     .returning()
@@ -958,5 +961,54 @@ export async function deleteApp(spaceSlug: string, slug: string) {
   await k8sClients()
     .core.deleteNamespacedSecret({ name: `${slug}-env`, namespace: space.namespace })
     .catch(() => {});
+  // PVCs carry no ownerReference (they survive CR deletion), so the operator
+  // never reaps them — delete them explicitly here. This destroys the app's
+  // persistent data; the UI delete flow warns about it.
+  for (const v of app.volumes ?? []) {
+    await k8sClients()
+      .core.deleteNamespacedPersistentVolumeClaim({ name: `${slug}-${v.name}`, namespace: space.namespace })
+      .catch(() => {});
+  }
   await db.delete(schema.apps).where(eq(schema.apps.id, app.id));
+}
+
+/**
+ * Replace an app's persistent volumes. Adding a volume creates its PVC (via the
+ * operator on the next reconcile); REMOVING one deletes its PVC here (explicit,
+ * user-initiated data loss) so storage is never silently orphaned. Size is
+ * immutable once a volume exists — a size change on an existing name is ignored
+ * (the live PVC can't resize on local-path).
+ */
+export async function setAppVolumes(
+  spaceSlug: string,
+  appSlug: string,
+  volumes: VolumeSpec[],
+) {
+  const space = await getSpaceBySlug(spaceSlug);
+  if (!space) throw new Error("Space not found");
+  const app = await getApp(space.id, appSlug);
+  if (!app) throw new Error("App not found");
+
+  const oldByName = new Map((app.volumes ?? []).map((v) => [v.name, v]));
+  // Preserve the original size for a kept volume (size is immutable post-create).
+  const next = volumes.map((v) => {
+    const prev = oldByName.get(v.name);
+    return prev ? { ...v, size: prev.size } : v;
+  });
+  const keptNames = new Set(next.map((v) => v.name));
+
+  // Delete PVCs for dropped volumes (control plane holds PVC-delete RBAC).
+  for (const v of app.volumes ?? []) {
+    if (keptNames.has(v.name)) continue;
+    await k8sClients()
+      .core.deleteNamespacedPersistentVolumeClaim({ name: `${appSlug}-${v.name}`, namespace: space.namespace })
+      .catch(() => {});
+  }
+
+  await db
+    .update(schema.apps)
+    .set({ volumes: next, updatedAt: new Date() })
+    .where(eq(schema.apps.id, app.id));
+  // Roll the pod so new mounts take effect (Recreate when volumes present).
+  await patchKoreApp(space.namespace, appSlug, { spec: { volumes: next }, restart: true });
 }

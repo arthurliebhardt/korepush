@@ -120,6 +120,21 @@ export async function reconcile(namespace: string, name: string): Promise<void> 
           failureThreshold: hc.retries ?? 3,
         }
       : undefined;
+  // Persistent volumes -> one RWO PVC each on local-path. Sort by name so a row
+  // reorder doesn't churn a (downtime-causing) Recreate via JSON.stringify drift.
+  // RWO means only one pod can mount at a time, so any volume forces replicas=1 +
+  // Recreate (a RollingUpdate would deadlock on the held volume). Setting strategy
+  // explicitly on BOTH branches keeps a volume-less app from drifting against the
+  // server-defaulted RollingUpdate.
+  const vols = [...(spec.volumes ?? [])].sort((a, b) => a.name.localeCompare(b.name));
+  const hasVolumes = vols.length > 0;
+  const replicas = hasVolumes ? 1 : (spec.replicas ?? 1);
+  const strategy = hasVolumes ? { type: "Recreate" } : { type: "RollingUpdate" };
+  const volumeMounts = vols.map((v) => ({ name: v.name, mountPath: v.mountPath }));
+  const podVolumes = vols.map((v) => ({
+    name: v.name,
+    persistentVolumeClaim: { claimName: `${name}-${v.name}` },
+  }));
   const container = {
     name,
     image: spec.image,
@@ -141,8 +156,8 @@ export async function reconcile(namespace: string, name: string): Promise<void> 
           livenessProbe: { ...probe, initialDelaySeconds: hc?.startPeriod ?? 10 },
         }
       : {}),
+    ...(volumeMounts.length ? { volumeMounts } : {}),
   };
-  const replicas = spec.replicas ?? 1;
   // A restart stamp on the CR (bumped by the control plane on env/secret change)
   // is propagated to the pod template so a Secret-value-only change rolls pods.
   const restartedAt = app.metadata.annotations?.["korepush.io/restartedAt"];
@@ -157,6 +172,34 @@ export async function reconcile(namespace: string, name: string): Promise<void> 
     .catch(() => false);
   const imagePullSecrets = hasPull ? [{ name: "korepush-pull" }] : undefined;
 
+  // PVCs: create-if-missing BEFORE the Deployment (else the pod schedules and
+  // hangs Pending waiting for a claim). NO ownerReference — PVCs survive
+  // Deployment/operator churn AND CR deletion; the control plane deletes them
+  // explicitly (deleteApp / setAppVolumes), so data loss is never an implicit GC
+  // cascade. Size is immutable after bind (local-path can't resize) — never patch
+  // an existing PVC.
+  for (const v of vols) {
+    const pvcName = `${name}-${v.name}`;
+    const existingPvc = await core
+      .readNamespacedPersistentVolumeClaim({ name: pvcName, namespace })
+      .catch(() => null);
+    if (!existingPvc) {
+      await core
+        .createNamespacedPersistentVolumeClaim({
+          namespace,
+          body: {
+            metadata: { name: pvcName, namespace, labels },
+            spec: {
+              accessModes: ["ReadWriteOnce"],
+              storageClassName: "local-path",
+              resources: { requests: { storage: v.size } },
+            },
+          },
+        })
+        .catch((err: unknown) => console.error("[pvc] create failed", pvcName, err));
+    }
+  }
+
   // Deployment: create, or replace only when the meaningful spec drifted.
   // Replace is a read-modify-write on a live object (its readyReplicas churns),
   // so retry on 409 by re-reading — the work queue would retry anyway, this just
@@ -170,12 +213,14 @@ export async function reconcile(namespace: string, name: string): Promise<void> 
           metadata: { name, namespace, labels, ownerReferences: [owner] },
           spec: {
             replicas,
+            strategy,
             selector: { matchLabels: { app: name } },
             template: {
               metadata: { labels, ...(podAnnotations ? { annotations: podAnnotations } : {}) },
               spec: {
                 containers: [container],
                 ...(imagePullSecrets ? { imagePullSecrets } : {}),
+                ...(podVolumes.length ? { volumes: podVolumes } : {}),
               },
             },
           },
@@ -196,13 +241,39 @@ export async function reconcile(namespace: string, name: string): Promise<void> 
     const drifted =
       needsOwner ||
       restartChanged ||
-      JSON.stringify([cur?.image, cur?.env, cur?.envFrom, existing.spec?.replicas, existing.spec?.template?.spec?.imagePullSecrets]) !==
-        JSON.stringify([container.image, container.env, container.envFrom, replicas, imagePullSecrets]);
+      JSON.stringify([
+        cur?.image,
+        cur?.env,
+        cur?.envFrom,
+        existing.spec?.replicas,
+        existing.spec?.template?.spec?.imagePullSecrets,
+        existing.spec?.strategy?.type,
+        // Normalised projections: k8s may add default fields to mounts/volumes,
+        // so compare just the identifying shape to avoid a no-op Recreate churn.
+        (cur?.volumeMounts ?? []).map((m) => `${m.name}:${m.mountPath}`),
+        (existing.spec?.template?.spec?.volumes ?? []).map(
+          (vv) => `${vv.name}:${vv.persistentVolumeClaim?.claimName ?? ""}`,
+        ),
+      ]) !==
+        JSON.stringify([
+          container.image,
+          container.env,
+          container.envFrom,
+          replicas,
+          imagePullSecrets,
+          strategy.type,
+          volumeMounts.map((m) => `${m.name}:${m.mountPath}`),
+          podVolumes.map((vv) => `${vv.name}:${vv.persistentVolumeClaim.claimName}`),
+        ]);
     if (!drifted) break;
     existing.metadata = { ...existing.metadata, labels, ownerReferences: [owner] };
     existing.spec!.replicas = replicas;
+    // Full PUT: setting strategy explicitly resets Recreate->RollingUpdate when
+    // all volumes are removed; volumes=undefined clears the pod volumes.
+    existing.spec!.strategy = strategy;
     existing.spec!.template.spec!.containers = [container];
     existing.spec!.template.spec!.imagePullSecrets = imagePullSecrets;
+    existing.spec!.template.spec!.volumes = podVolumes.length ? podVolumes : undefined;
     const tmpl = existing.spec!.template;
     tmpl.metadata = tmpl.metadata ?? {};
     if (restartedAt) {

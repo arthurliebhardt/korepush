@@ -120,6 +120,24 @@ spec:
                   properties:
                     name: { type: string }
                     envVar: { type: string, default: DATABASE_URL }
+                # Persistent volumes -> one PVC each on `local-path` (RWO). An app
+                # with any volume is pinned to 1 replica + Recreate by the operator.
+                volumes:
+                  type: array
+                  maxItems: 16
+                  x-kubernetes-list-type: map
+                  x-kubernetes-list-map-keys: [name]
+                  items:
+                    type: object
+                    required: [name, mountPath, size]
+                    properties:
+                      # RE2 (no lookahead): DNS-1123 label; also the pod-spec
+                      # volume name (<=63) and PVC-name suffix.
+                      name: { type: string, maxLength: 40, pattern: '^[a-z0-9]([a-z0-9-]*[a-z0-9])?$' }
+                      # Absolute container path.
+                      mountPath: { type: string, minLength: 1, maxLength: 256, pattern: '^/.*$' }
+                      # k8s integer quantity (no decimals — local-path friendly).
+                      size: { type: string, maxLength: 16, pattern: '^[0-9]+(Ki|Mi|Gi|Ti)$' }
             status:
               type: object
               properties:

@@ -41,6 +41,13 @@ rules:
   - apiGroups: [""]
     resources: ["services"]
     verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  # Persistent volumes for apps: the operator CREATES one PVC per declared volume
+  # (create-if-missing) but NEVER deletes them — PVC deletion is an explicit
+  # control-plane act (deleteApp / setAppVolumes) so data loss is never an
+  # implicit operator-driven cascade.
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create"]
   # Secrets are referenced (never created) by the operator — but the deletion
   # finalizer deletes the per-app `<slug>-env` Secret and the per-host TLS
   # Secrets in kube-system, so it needs delete too.

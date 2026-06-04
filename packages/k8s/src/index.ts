@@ -44,6 +44,7 @@ export {
   attachDatabase,
   detachDatabase,
   setAppEnv,
+  setAppVolumes,
   rollbackDeployment,
   listDeployments,
   getDeployment,
@@ -118,3 +119,4 @@ export type {
   ComposeSkip,
 } from "./compose";
 export { getKoreAppPhase, listKoreAppPhases, phaseToStatus } from "./koreapp";
+export type { VolumeSpec } from "./koreapp";

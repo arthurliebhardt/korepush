@@ -24,6 +24,7 @@ import {
   attachDatabase,
   detachDatabase,
   setAppEnv,
+  setAppVolumes,
   rollbackDeployment,
   addAppDomain,
   removeAppDomain,
@@ -31,6 +32,7 @@ import {
   setRegistryCredential,
   removeRegistryCredential,
 } from "@korepush/k8s";
+import type { VolumeSpec } from "@korepush/k8s";
 import {
   mintCloneTokenForRepo,
   detectPort,
@@ -66,6 +68,37 @@ export async function deleteSpaceAction(slug: string): Promise<ActionResult> {
   }
 }
 
+// Server-side authoritative validation of persistent-volume rows (the CRD
+// enforces the same shape, but reject early with a friendly message). Returns an
+// error string, or the cleaned list.
+const VOL_NAME_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
+const VOL_SIZE_RE = /^[0-9]+(Ki|Mi|Gi|Ti)$/;
+function validateVolumes(
+  volumes: VolumeSpec[] | undefined,
+): { error: string } | { volumes: VolumeSpec[] } {
+  const clean = (volumes ?? [])
+    .map((v) => ({ name: v.name?.trim(), mountPath: v.mountPath?.trim(), size: (v.size?.trim() || "1Gi") }))
+    .filter((v) => v.name || v.mountPath);
+  const names = new Set<string>();
+  const paths = new Set<string>();
+  for (const v of clean) {
+    if (!VOL_NAME_RE.test(v.name) || v.name.length > 40) {
+      return { error: `Volume name "${v.name}" must be lowercase letters, digits and dashes (≤40 chars).` };
+    }
+    if (!v.mountPath.startsWith("/") || v.mountPath.length > 256) {
+      return { error: `Mount path "${v.mountPath}" must be an absolute path.` };
+    }
+    if (!VOL_SIZE_RE.test(v.size)) {
+      return { error: `Volume size "${v.size}" must be a whole number with a unit, e.g. 1Gi.` };
+    }
+    if (names.has(v.name)) return { error: `Duplicate volume name "${v.name}".` };
+    if (paths.has(v.mountPath)) return { error: `Duplicate mount path "${v.mountPath}".` };
+    names.add(v.name);
+    paths.add(v.mountPath);
+  }
+  return { volumes: clean };
+}
+
 export async function createAppAction(input: {
   spaceSlug: string;
   name: string;
@@ -75,11 +108,14 @@ export async function createAppAction(input: {
   attachDatabaseId?: string;
   cpuLimit?: string;
   memoryLimit?: string;
+  volumes?: VolumeSpec[];
 }): Promise<{ ok: true; appSlug: string } | { ok: false; error: string }> {
   await assertOwnsSpace(input.spaceSlug);
   try {
     const split = input.env?.length ? splitEnvVars(input.env) : null;
     if (split && "error" in split) return { ok: false, error: split.error };
+    const vres = validateVolumes(input.volumes);
+    if ("error" in vres) return { ok: false, error: vres.error };
     const app = await createApp({
       spaceSlug: input.spaceSlug,
       name: input.name,
@@ -87,6 +123,7 @@ export async function createAppAction(input: {
       port: input.port,
       cpuLimit: input.cpuLimit || undefined,
       memoryLimit: input.memoryLimit || undefined,
+      volumes: vres.volumes.length ? vres.volumes : undefined,
     });
     // Env (incl. secrets stored in a k8s Secret) + DB attach are applied after
     // create; the operator re-reconciles the workload with them.
@@ -172,6 +209,7 @@ export async function importComposeAction(
         command: app.command,
         args: app.args,
         healthcheck: app.healthcheck,
+        volumes: app.volumes,
       });
       if (split) await setAppEnv(spaceSlug, created.slug, split);
       if (app.attachDatabaseService) {
@@ -550,6 +588,23 @@ export async function removeRegistryCredentialAction(
   try {
     await removeRegistryCredential(spaceSlug, registry);
     revalidatePath(`/spaces/${spaceSlug}/settings`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  }
+}
+
+export async function setAppVolumesAction(
+  spaceSlug: string,
+  appSlug: string,
+  volumes: VolumeSpec[],
+): Promise<ActionResult> {
+  await assertOwnsSpace(spaceSlug);
+  const vres = validateVolumes(volumes);
+  if ("error" in vres) return { ok: false, error: vres.error };
+  try {
+    await setAppVolumes(spaceSlug, appSlug, vres.volumes);
+    revalidatePath(`/spaces/${spaceSlug}/apps/${appSlug}`);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: errorMessage(err) };

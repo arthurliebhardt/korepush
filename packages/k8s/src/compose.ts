@@ -27,6 +27,7 @@ export type ComposeAppPlan = {
     startPeriod?: number;
   };
   attachDatabaseService?: string; // compose name of the postgres it should use
+  volumes?: Array<{ name: string; mountPath: string; size: string }>;
   warnings: string[];
 };
 
@@ -143,6 +144,63 @@ function dependsList(raw: unknown): string[] {
   return [];
 }
 
+// compose `volumes` → korepush persistent volumes (named → one 1Gi PVC each).
+// Bind mounts (host paths) and anonymous volumes can't map to a PVC and are
+// skipped with a warning. Short form: "src:/target[:ro]" or "/target"; long
+// form: { type, source, target }. Returns the mapped volumes + warnings.
+function parseComposeVolumes(raw: unknown): {
+  volumes: Array<{ name: string; mountPath: string; size: string }>;
+  warnings: string[];
+} {
+  const out: Array<{ name: string; mountPath: string; size: string }> = [];
+  const warnings: string[] = [];
+  if (!Array.isArray(raw)) return { volumes: out, warnings };
+  const seenNames = new Set<string>();
+  const seenPaths = new Set<string>();
+  const isHostPath = (s: string) => s.startsWith(".") || s.startsWith("/") || s.startsWith("~");
+
+  for (const entry of raw) {
+    let source: string | undefined;
+    let target: string | undefined;
+    let bind = false;
+    if (typeof entry === "string") {
+      const parts = entry.split(":");
+      if (parts.length >= 2) {
+        source = parts[0];
+        target = parts[1];
+      } else {
+        target = parts[0]; // anonymous "/data"
+      }
+    } else if (entry && typeof entry === "object") {
+      const o = entry as Record<string, unknown>;
+      source = typeof o.source === "string" ? o.source : undefined;
+      target = typeof o.target === "string" ? o.target : undefined;
+      bind = o.type === "bind";
+    }
+    if (!target || !target.startsWith("/")) {
+      warnings.push("Skipped a volume with no absolute container path.");
+      continue;
+    }
+    if (!source || bind || isHostPath(source)) {
+      warnings.push(`Skipped bind mount → ${target} (host paths aren't supported; use a named volume).`);
+      continue;
+    }
+    const name = slugify(source).slice(0, 40);
+    if (!name) {
+      warnings.push(`Skipped volume "${source}" (couldn't derive a valid name).`);
+      continue;
+    }
+    if (seenNames.has(name) || seenPaths.has(target)) continue;
+    seenNames.add(name);
+    seenPaths.add(target);
+    out.push({ name, mountPath: target, size: "1Gi" });
+  }
+  if (out.length) {
+    warnings.push(`Persistent volume${out.length > 1 ? "s" : ""} ${out.map((v) => `${v.name} (1Gi)`).join(", ")} — default 1Gi each; this app runs 1 replica.`);
+  }
+  return { volumes: out, warnings };
+}
+
 export function parseComposePlan(yamlText: string): ComposePlan {
   const empty: ComposePlan = {
     ok: false,
@@ -163,9 +221,9 @@ export function parseComposePlan(yamlText: string): ComposePlan {
   }
 
   const warnings: string[] = [];
-  if ((doc as { volumes?: unknown }).volumes) {
-    warnings.push("Top-level `volumes` are ignored — korepush has no persistent storage yet (except managed Postgres).");
-  }
+  // Named volumes referenced by a service are mapped to PVCs per-service (see
+  // parseComposeVolumes); the top-level `volumes:` declaration itself needs no
+  // handling. Only bind mounts / anonymous volumes are skipped (warned per app).
   if ((doc as { configs?: unknown }).configs || (doc as { secrets?: unknown }).secrets) {
     warnings.push("File-mounted `configs`/`secrets` are not supported; use environment variables.");
   }
@@ -283,7 +341,8 @@ export function parseComposePlan(yamlText: string): ComposePlan {
       }
     }
 
-    if (svc.volumes) w.push("`volumes` are ignored — this app's storage is ephemeral (lost on restart).");
+    const { volumes: appVolumes, warnings: volWarnings } = parseComposeVolumes(svc.volumes);
+    w.push(...volWarnings);
     const command = toCmd(svc.entrypoint); // ENTRYPOINT override
     const args = toCmd(svc.command); // CMD override
     let healthcheck: ComposeAppPlan["healthcheck"];
@@ -310,7 +369,9 @@ export function parseComposePlan(yamlText: string): ComposePlan {
     ) {
       w.push("`deploy.resources.reservations` (requests) aren't applied — set resource limits instead.");
     }
-    if (STATEFUL_RE.test(image)) w.push("No managed engine for this datastore — it runs ephemerally with no persistence or backups.");
+    if (STATEFUL_RE.test(image) && appVolumes.length === 0) {
+      w.push("No managed engine for this datastore — it runs ephemerally (add a volume for persistence, but there are no backups).");
+    }
 
     const replicas =
       typeof deploy.replicas === "number" ? deploy.replicas : undefined;
@@ -328,6 +389,7 @@ export function parseComposePlan(yamlText: string): ComposePlan {
       args,
       healthcheck,
       attachDatabaseService,
+      volumes: appVolumes.length ? appVolumes : undefined,
       warnings: w,
     });
   }

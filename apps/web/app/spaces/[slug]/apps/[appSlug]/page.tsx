@@ -32,6 +32,7 @@ import { RollbackButton } from "@/components/rollback-button";
 import { AttachDatabase } from "@/components/attach-database";
 import { EnvEditor } from "@/components/env-editor";
 import { CustomDomains } from "@/components/custom-domains";
+import { AppVolumes } from "@/components/app-volumes";
 import { StatusBadge } from "@/components/status-badge";
 import { AddEnvironment } from "@/components/add-environment";
 
@@ -363,6 +364,11 @@ export default async function AppPage({
             initial={appDomains}
             serverIp={nodeIp}
             autoHost={autoHost}
+          />
+          <AppVolumes
+            spaceSlug={space.slug}
+            appSlug={app.slug}
+            initial={app.volumes ?? []}
           />
           <AppEnv
             spaceSlug={space.slug}

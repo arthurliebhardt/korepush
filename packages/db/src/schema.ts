@@ -151,6 +151,14 @@ export const apps = pgTable("apps", {
     retries?: number;
     startPeriod?: number;
   }>(),
+  // Persistent volumes (one PVC per entry on the `local-path` storageclass,
+  // ReadWriteOnce). An app with any volume runs 1 replica + Recreate strategy.
+  // PVCs are deleted explicitly by the control plane (deleteApp / setAppVolumes),
+  // never owner-ref GC'd — data destruction stays an explicit, audited act.
+  volumes: jsonb("volumes")
+    .$type<Array<{ name: string; mountPath: string; size: string }>>()
+    .default([])
+    .notNull(),
   // Plain (non-secret) env vars, inlined into the Deployment pod spec.
   env: jsonb("env").$type<Record<string, string>>().default({}).notNull(),
   // Names of secret env vars; their VALUES live only in the per-app k8s Secret
