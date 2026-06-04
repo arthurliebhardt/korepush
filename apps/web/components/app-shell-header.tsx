@@ -19,13 +19,19 @@ export type Crumb = {
 export function AppShellHeader({
   crumbs = [],
   mobileNav,
+  leading,
 }: {
   crumbs?: Crumb[];
   mobileNav?: React.ReactNode;
+  leading?: React.ReactNode;
 }) {
   return (
     <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-4">
       {mobileNav}
+      {leading}
+      {leading && (
+        <span className="mr-1 hidden h-4 w-px bg-border md:block" aria-hidden />
+      )}
       <nav className="flex min-w-0 items-center gap-2 text-sm">
         {crumbs.map((c, i) => (
           <span key={i} className="flex min-w-0 items-center gap-2">

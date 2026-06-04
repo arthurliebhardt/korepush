@@ -19,9 +19,11 @@ export type SwitcherSpace = {
 export function SpaceSwitcher({
   spaces,
   activeSlug,
+  collapsed = false,
 }: {
   spaces: SwitcherSpace[];
   activeSlug?: string;
+  collapsed?: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -62,7 +64,10 @@ export function SpaceSwitcher({
     <div ref={ref} className="relative w-full">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg-subtle"
+        title={collapsed ? (active ? active.name : "korepush") : undefined}
+        className={`flex w-full items-center rounded-md text-left transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
+          collapsed ? "justify-center p-1.5" : "gap-2 px-3 py-1.5"
+        }`}
         aria-haspopup="menu"
         aria-expanded={open}
       >
@@ -72,24 +77,30 @@ export function SpaceSwitcher({
         >
           {(active?.name ?? "k").charAt(0).toUpperCase()}
         </span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-sm font-medium text-foreground">
-            {active ? active.name : "korepush"}
-          </span>
-          <span className="block truncate text-xs text-fg-subtle">
-            {active ? "Space" : "self-hosted"}
-          </span>
-        </span>
-        <span className="shrink-0 text-fg-subtle">
-          <ChevronUpDownIcon />
-        </span>
+        {!collapsed && (
+          <>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium text-foreground">
+                {active ? active.name : "korepush"}
+              </span>
+              <span className="block truncate text-xs text-fg-subtle">
+                {active ? "Space" : "self-hosted"}
+              </span>
+            </span>
+            <span className="shrink-0 text-fg-subtle">
+              <ChevronUpDownIcon />
+            </span>
+          </>
+        )}
       </button>
 
       {open && (
         <div
           role="menu"
           style={{ animation: "toast-in 140ms cubic-bezier(0.16, 1, 0.3, 1)" }}
-          className="surface-overlay absolute left-0 right-0 top-[calc(100%+4px)] z-40 overflow-hidden"
+          className={`surface-overlay absolute top-[calc(100%+4px)] z-40 overflow-hidden ${
+            collapsed ? "left-0 w-60" : "left-0 right-0"
+          }`}
         >
           {spaces.length > 4 && (
             <input

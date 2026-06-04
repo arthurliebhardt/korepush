@@ -1,12 +1,12 @@
+import { cookies } from "next/headers";
 import { listSpacesWithStats, clusterReachable } from "@korepush/k8s";
-import { Sidebar } from "@/components/sidebar";
-import { MobileNav } from "@/components/mobile-nav";
-import { AppShellHeader, type Crumb } from "@/components/app-shell-header";
+import { ShellChrome } from "@/components/shell-chrome";
+import type { Crumb } from "@/components/app-shell-header";
 
-// Authed page shell: the space-scoped rail + a content column with the slim
-// breadcrumb header and the page's <main>. The shell self-fetches the caller's
-// spaces (for the switcher + root nav) and cluster health, so pages only pass
-// their email, the active space (if any), and breadcrumbs.
+// Authed page shell. Self-fetches the caller's spaces (for the switcher + root
+// nav) and cluster health, reads the persisted sidebar-collapsed cookie so the
+// rail renders at the right width on first paint, then hands off to the client
+// ShellChrome (which owns the collapse toggle).
 export async function AppShell({
   email,
   userId,
@@ -22,39 +22,23 @@ export async function AppShell({
   crumbs?: Crumb[];
   children: React.ReactNode;
 }) {
-  const [spaces, clusterOk] = await Promise.all([
+  const [spaces, clusterOk, cookieStore] = await Promise.all([
     listSpacesWithStats(isAdmin ? undefined : userId),
     clusterReachable().catch(() => false),
+    cookies(),
   ]);
+  const defaultCollapsed = cookieStore.get("kp_sidebar")?.value === "1";
 
   return (
-    <div className="flex h-svh bg-background">
-      <Sidebar
-        email={email}
-        spaces={spaces}
-        space={space}
-        clusterOk={clusterOk}
-      />
-      {/* shadcn SidebarInset: the main area is a rounded, bordered panel that
-          floats on the page background with a small gap, scrolling internally. */}
-      <div className="flex min-w-0 flex-1 flex-col p-2">
-        <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-border bg-bg-subtle shadow-md">
-          <AppShellHeader
-            crumbs={crumbs}
-            mobileNav={
-              <MobileNav
-                email={email}
-                spaces={spaces}
-                space={space}
-                clusterOk={clusterOk}
-              />
-            }
-          />
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-            {children}
-          </div>
-        </div>
-      </div>
-    </div>
+    <ShellChrome
+      email={email}
+      spaces={spaces}
+      space={space}
+      clusterOk={clusterOk}
+      crumbs={crumbs}
+      defaultCollapsed={defaultCollapsed}
+    >
+      {children}
+    </ShellChrome>
   );
 }
