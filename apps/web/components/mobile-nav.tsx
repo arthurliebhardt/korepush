@@ -4,7 +4,7 @@ import { useState } from "react";
 import { SpaceSwitcher, type SwitcherSpace } from "@/components/space-switcher";
 import { SidebarNav } from "@/components/sidebar-nav";
 import { SidebarSearch } from "@/components/sidebar-search";
-import { SignOutButton } from "@/components/sign-out-button";
+import { UserMenu } from "@/components/user-menu";
 import { MenuIcon } from "@/components/ui/icons";
 
 // Below md the rail is hidden; this hamburger opens the same three zones as a
@@ -45,14 +45,14 @@ export function MobileNav({
               if ((e.target as HTMLElement).closest("a")) setOpen(false);
             }}
           >
-            <div className="flex h-14 items-center border-b border-border px-2">
+            <div className="flex h-14 items-center px-2">
               <SpaceSwitcher spaces={spaces} activeSlug={space?.slug} />
             </div>
             <SidebarNav space={space} spaces={spaces} />
-            <div className="space-y-2.5 border-t border-border p-3">
+            <div className="flex flex-col gap-1 p-2">
               <SidebarSearch />
               <span
-                className={`flex items-center gap-2.5 px-1 text-xs ${
+                className={`flex items-center gap-2.5 px-2 py-1 text-xs ${
                   clusterOk ? "text-success-fg" : "text-danger-fg"
                 }`}
               >
@@ -62,10 +62,7 @@ export function MobileNav({
                 />
                 {clusterOk ? "Cluster connected" : "Cluster unreachable"}
               </span>
-              <div className="flex items-center justify-between gap-2">
-                <p className="min-w-0 truncate px-1 text-xs text-muted">{email}</p>
-                <SignOutButton />
-              </div>
+              <UserMenu email={email} />
             </div>
           </aside>
         </div>

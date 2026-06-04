@@ -24,7 +24,7 @@ export function AppShellHeader({
   mobileNav?: React.ReactNode;
 }) {
   return (
-    <header className="sticky top-0 z-20 flex h-14 items-center gap-2 border-b border-border bg-bg-subtle/80 px-4 backdrop-blur">
+    <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border px-4">
       {mobileNav}
       <nav className="flex min-w-0 items-center gap-2 text-sm">
         {crumbs.map((c, i) => (
