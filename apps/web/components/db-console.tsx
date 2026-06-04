@@ -1,7 +1,12 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { runDatabaseQueryAction, type QueryResult } from "@/app/actions";
+import { runDatabaseQueryAction } from "@/app/actions";
+
+// Derive the result type from the action's return so the client never imports a
+// type from the server-only @korepush/k8s package (and avoids a fragile
+// type re-export through the "use server" module).
+type QueryResult = Awaited<ReturnType<typeof runDatabaseQueryAction>>;
 
 // SQL console — runs owner-supplied SQL against THIS database via the server
 // action. It only ever knows (spaceSlug, dbSlug); the connection URI stays

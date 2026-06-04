@@ -34,10 +34,6 @@ import {
 import { detectProject } from "@/lib/github/detect";
 import type { QueryResult } from "@korepush/k8s";
 
-// Re-export so the client console imports the type from here, never from the
-// server-only @korepush/k8s package.
-export type { QueryResult };
-
 export type ActionResult = { ok: true } | { ok: false; error: string };
 export type BuildActionResult =
   | { ok: true; appSlug: string; deploymentId: string }
