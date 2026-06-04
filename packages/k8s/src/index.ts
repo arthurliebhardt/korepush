@@ -46,6 +46,7 @@ export {
   setAppEnv,
   rollbackDeployment,
   listDeployments,
+  getDeployment,
   lastDeployedAt,
   latestBuildingDeployment,
   addAppDomain,

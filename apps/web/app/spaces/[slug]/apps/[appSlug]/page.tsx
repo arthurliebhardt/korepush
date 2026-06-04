@@ -268,31 +268,52 @@ export default async function AppPage({
                   const isLive = d.id === liveDeployId;
                   const canRollback =
                     d.status === "succeeded" && !!d.image && !isLive;
+                  const href = `${basePath}/deployments/${d.id}`;
+                  const cell = "block px-4 py-2.5";
                   return (
                     <tr
                       key={d.id}
-                      className="border-b border-border-subtle last:border-0"
+                      className="border-b border-border-subtle transition-colors last:border-0 hover:bg-surface-2"
                     >
-                      <td className="px-4 py-2.5">
-                        <StatusBadge status={d.status} />
+                      <td className="p-0">
+                        <Link href={href} className={cell}>
+                          <StatusBadge status={d.status} />
+                        </Link>
                       </td>
-                      <td className="px-4 py-2.5 font-mono text-xs">
-                        {d.commitSha ? (
-                          <span className="text-foreground">
-                            {d.commitSha.slice(0, 7)}
-                          </span>
-                        ) : (
-                          <span className="text-muted">{tag}</span>
-                        )}
+                      <td className="p-0">
+                        <Link href={href} className={`${cell} font-mono text-xs`}>
+                          {d.commitSha ? (
+                            <span className="text-foreground">
+                              {d.commitSha.slice(0, 7)}
+                            </span>
+                          ) : (
+                            <span className="text-muted">{tag}</span>
+                          )}
+                        </Link>
                       </td>
-                      <td className="px-4 py-2.5 text-xs text-muted">
-                        {d.trigger}
+                      <td className="p-0">
+                        <Link
+                          href={href}
+                          className={`${cell} text-xs text-muted`}
+                        >
+                          {d.trigger}
+                        </Link>
                       </td>
-                      <td className="px-4 py-2.5 text-xs tabular-nums text-muted">
-                        {fmtDuration(d.createdAt, d.finishedAt)}
+                      <td className="p-0">
+                        <Link
+                          href={href}
+                          className={`${cell} text-xs tabular-nums text-muted`}
+                        >
+                          {fmtDuration(d.createdAt, d.finishedAt)}
+                        </Link>
                       </td>
-                      <td className="px-4 py-2.5 text-xs text-muted">
-                        {timeAgo(d.createdAt)}
+                      <td className="p-0">
+                        <Link
+                          href={href}
+                          className={`${cell} text-xs text-muted`}
+                        >
+                          {timeAgo(d.createdAt)}
+                        </Link>
                       </td>
                       <td className="px-4 py-2.5 text-right">
                         {isLive ? (

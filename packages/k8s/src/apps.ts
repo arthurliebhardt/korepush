@@ -700,6 +700,22 @@ export async function listDeployments(appId: string) {
     .limit(20);
 }
 
+// Fetch one deployment, scoped to its app so a foreign/guessed id can't be
+// read (mirrors the rollback path's scoping).
+export async function getDeployment(appId: string, deploymentId: string) {
+  const [dep] = await db
+    .select()
+    .from(schema.deployments)
+    .where(
+      and(
+        eq(schema.deployments.id, deploymentId),
+        eq(schema.deployments.appId, appId),
+      ),
+    )
+    .limit(1);
+  return dep ?? null;
+}
+
 export async function latestBuildingDeployment(appId: string) {
   const [dep] = await db
     .select()
