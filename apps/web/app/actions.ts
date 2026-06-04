@@ -14,6 +14,9 @@ import {
   getSpaceBySlug,
   getApp,
   createDatabase,
+  getDatabase,
+  getDatabaseInfo,
+  runUserQuery,
   deleteDatabase,
   attachDatabase,
   detachDatabase,
@@ -29,6 +32,11 @@ import {
   canonicalRepoUrl,
 } from "@/lib/github/app";
 import { detectProject } from "@/lib/github/detect";
+import type { QueryResult } from "@korepush/k8s";
+
+// Re-export so the client console imports the type from here, never from the
+// server-only @korepush/k8s package.
+export type { QueryResult };
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
 export type BuildActionResult =
@@ -232,6 +240,48 @@ export async function createDatabaseAction(
     return { ok: true };
   } catch (err) {
     return { ok: false, error: errorMessage(err) };
+  }
+}
+
+// Per-database in-flight guard (single control-plane replica → in-memory is
+// enough) so scripted Run-spam can't open many transient clients at once.
+const runningQueries = new Set<string>();
+
+/**
+ * Run owner-supplied SQL against a database the caller owns. SECURITY: the
+ * connection URI is resolved entirely server-side from the OWNED database row —
+ * the action never accepts a URI/host/namespace/id. assertOwnsSpace runs on
+ * every call; getDatabase binds dbSlug to that owned space. See runUserQuery for
+ * the execution hardening (extended protocol, timeouts, row cap).
+ */
+export async function runDatabaseQueryAction(
+  spaceSlug: string,
+  dbSlug: string,
+  sql: string,
+): Promise<QueryResult> {
+  let key: string | null = null;
+  try {
+    const { space } = await assertOwnsSpace(spaceSlug);
+    const row = await getDatabase(space.id, dbSlug);
+    if (!row) return { ok: false, error: "Database not found." };
+    key = `${space.id}:${row.slug}`;
+    if (runningQueries.has(key)) {
+      return { ok: false, error: "A query is already running on this database." };
+    }
+    runningQueries.add(key);
+    const info = await getDatabaseInfo(space.namespace, row.slug);
+    if (!info.connectionUri) {
+      return { ok: false, error: "Database is still provisioning." };
+    }
+    const res = await runUserQuery(info.connectionUri, sql);
+    console.log(
+      `[db-console] ${space.slug}/${row.slug} ${res.ok ? `rows=${res.rowCount}${res.truncated ? "+" : ""} ${res.durationMs}ms` : "error"}`,
+    );
+    return res;
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  } finally {
+    if (key) runningQueries.delete(key);
   }
 }
 

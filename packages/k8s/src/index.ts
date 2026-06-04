@@ -76,10 +76,12 @@ export {
   getDatabase,
   createDatabase,
   getDatabaseInfo,
+  getDatabaseStats,
+  runUserQuery,
   deleteDatabase,
   backfillKoreDatabases,
 } from "./databases";
-export type { DatabaseInfo } from "./databases";
+export type { DatabaseInfo, DbStats, QueryResult } from "./databases";
 export {
   prometheusReachable,
   getAppMetrics,

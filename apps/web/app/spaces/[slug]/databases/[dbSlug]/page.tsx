@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireSpacePage } from "@/lib/session";
+import { getDatabaseStats } from "@korepush/k8s";
 import { AppShell } from "@/components/app-shell";
 import { StatusBadge } from "@/components/status-badge";
+import { DbConsole } from "@/components/db-console";
 import {
   CopyButton,
   DetachAppButton,
@@ -28,6 +30,11 @@ export default async function DatabaseDetailPage({
   ]);
   const db = databases.find((d) => d.slug === dbSlug);
   if (!db) notFound();
+
+  // Live stats run server-side against the DB's own URI (never sent to client).
+  const stats = db.info.connectionUri
+    ? await getDatabaseStats(db.info.connectionUri).catch(() => null)
+    : null;
 
   const attached = apps.filter((a) => a.attachedDbId === db.id);
   const attachable = apps.filter((a) => a.attachedDbId !== db.id);
@@ -65,6 +72,72 @@ export default async function DatabaseDetailPage({
             <p className="text-xs text-muted">Provisioning Postgres…</p>
           )}
         </section>
+
+        {db.info.connectionUri && (
+          <section className="card mb-6 space-y-4">
+            <h2 className="text-sm font-medium text-muted">Overview</h2>
+            {stats && !stats.degraded ? (
+              <>
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                  <Stat
+                    label="Version"
+                    value={stats.version ? `PostgreSQL ${stats.version}` : "—"}
+                  />
+                  <Stat label="Size" value={stats.sizePretty ?? "—"} />
+                  <Stat
+                    label="Connections"
+                    value={
+                      stats.activeConnections != null
+                        ? `${stats.activeConnections} / ${stats.maxConnections ?? "?"}`
+                        : "—"
+                    }
+                  />
+                  <Stat
+                    label="Tables"
+                    value={
+                      stats.tableCount != null ? String(stats.tableCount) : "—"
+                    }
+                  />
+                  <Stat
+                    label="Uptime"
+                    value={
+                      stats.uptimeSeconds != null
+                        ? fmtUptime(stats.uptimeSeconds)
+                        : "—"
+                    }
+                  />
+                </div>
+                {stats.topTables.length > 0 && (
+                  <div>
+                    <div className="mb-2 text-xs font-medium text-muted">
+                      Largest tables
+                    </div>
+                    <ul className="space-y-1">
+                      {stats.topTables.map((t) => (
+                        <li
+                          key={t.name}
+                          className="flex justify-between gap-3 text-xs"
+                        >
+                          <span className="truncate font-mono">{t.name}</span>
+                          <span className="shrink-0 text-muted">{t.pretty}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </>
+            ) : (
+              <p className="text-xs text-muted">
+                Metrics unavailable while the database is provisioning or
+                unreachable.
+              </p>
+            )}
+          </section>
+        )}
+
+        <div className="mb-6">
+          <DbConsole spaceSlug={space.slug} dbSlug={db.slug} />
+        </div>
 
         <section className="mb-6">
           <h2 className="mb-3 text-sm font-medium text-muted">Attached to</h2>
@@ -121,4 +194,22 @@ export default async function DatabaseDetailPage({
       </main>
     </AppShell>
   );
+}
+
+function Stat({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-xs text-muted">{label}</div>
+      <div className="mt-1 font-mono text-sm text-foreground">{value}</div>
+    </div>
+  );
+}
+
+function fmtUptime(sec: number): string {
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (d > 0) return `${d}d ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
 }

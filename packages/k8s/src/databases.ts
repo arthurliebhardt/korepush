@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import postgres from "postgres";
 import { db, schema } from "@korepush/db";
 import { k8sClients } from "./client";
 import { getSpaceBySlug, listSpaces } from "./spaces";
@@ -152,6 +153,186 @@ export async function deleteDatabase(spaceSlug: string, slug: string) {
   // CNPG Cluster. (The LimitRange is now owned by the KoreSpace.)
   await deleteKoreDatabase(space.namespace, slug);
   await db.delete(schema.databases).where(eq(schema.databases.id, row.id));
+}
+
+// ---------------------------------------------------------------------------
+// Tenant DB console — connect to a USER's CNPG database (never the control
+// plane) to read live stats and run owner-supplied SQL. The connection URI is
+// always resolved server-side from the owned database row (see the web action);
+// this layer just takes the already-resolved URI and runs against it safely.
+// ---------------------------------------------------------------------------
+
+// A transient, single-connection client with hard server-side ceilings baked
+// into the startup packet (so user SQL can't reset them) — short-lived, torn
+// down by the caller's finally.
+function tenantConn(uri: string, statementTimeoutMs: number) {
+  return postgres(uri, {
+    max: 1,
+    connect_timeout: 5,
+    idle_timeout: 5,
+    max_lifetime: 30,
+    prepare: false,
+    fetch_types: false,
+    onnotice: () => {},
+    connection: {
+      application_name: "korepush-console",
+      statement_timeout: statementTimeoutMs,
+      idle_in_transaction_session_timeout: 10000,
+      lock_timeout: 3000,
+    },
+  });
+}
+
+// Never leak the connection URI/host (or a raw Error) to the client.
+function sanitizeDbError(err: unknown, uri: string): string {
+  let msg = err instanceof Error ? err.message : "Query failed.";
+  try {
+    const host = new URL(uri).host;
+    if (host) msg = msg.split(host).join("<db>");
+  } catch {}
+  return msg.split(uri).join("<db>").slice(0, 2000);
+}
+
+export type DbStats = {
+  degraded: boolean;
+  version: string | null;
+  sizePretty: string | null;
+  sizeBytes: number | null;
+  activeConnections: number | null;
+  maxConnections: number | null;
+  startedAt: string | null;
+  uptimeSeconds: number | null;
+  tableCount: number | null;
+  topTables: { name: string; bytes: number; pretty: string }[];
+};
+
+const EMPTY_STATS: DbStats = {
+  degraded: true,
+  version: null,
+  sizePretty: null,
+  sizeBytes: null,
+  activeConnections: null,
+  maxConnections: null,
+  startedAt: null,
+  uptimeSeconds: null,
+  tableCount: null,
+  topTables: [],
+};
+
+/** Read-only introspection, scoped to current_database(); degrades per-field. */
+export async function getDatabaseStats(connectionUri: string): Promise<DbStats> {
+  const sql = tenantConn(connectionUri, 4000);
+  try {
+    const one = async <T>(fn: () => Promise<T>): Promise<T | null> =>
+      fn().catch(() => null);
+
+    const [size, conns, maxc, started, tables, top, version] = await Promise.all([
+      one(() => sql`SELECT pg_database_size(current_database()) AS bytes, pg_size_pretty(pg_database_size(current_database())) AS pretty`),
+      one(() => sql`SELECT count(*)::int AS active FROM pg_stat_activity WHERE datname = current_database()`),
+      one(() => sql`SELECT current_setting('max_connections')::int AS max`),
+      one(() => sql`SELECT pg_postmaster_start_time() AS started_at, extract(epoch FROM (now() - pg_postmaster_start_time()))::bigint AS uptime`),
+      one(() => sql`SELECT count(*)::int AS tables FROM information_schema.tables WHERE table_schema NOT IN ('pg_catalog','information_schema')`),
+      one(() => sql`SELECT n.nspname || '.' || c.relname AS name, pg_total_relation_size(c.oid)::bigint AS bytes, pg_size_pretty(pg_total_relation_size(c.oid)) AS pretty FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relkind IN ('r','p','m') AND n.nspname NOT IN ('pg_catalog','information_schema') ORDER BY pg_total_relation_size(c.oid) DESC LIMIT 10`),
+      one(() => sql`SELECT current_setting('server_version') AS version`),
+    ]);
+
+    return {
+      degraded: false,
+      version: (version?.[0]?.version as string) ?? null,
+      sizePretty: (size?.[0]?.pretty as string) ?? null,
+      sizeBytes: size?.[0]?.bytes != null ? Number(size[0].bytes) : null,
+      activeConnections: conns?.[0]?.active != null ? Number(conns[0].active) : null,
+      maxConnections: maxc?.[0]?.max != null ? Number(maxc[0].max) : null,
+      startedAt: started?.[0]?.started_at ? String(started[0].started_at) : null,
+      uptimeSeconds: started?.[0]?.uptime != null ? Number(started[0].uptime) : null,
+      tableCount: tables?.[0]?.tables != null ? Number(tables[0].tables) : null,
+      topTables: (top ?? []).map((r: Record<string, unknown>) => ({
+        name: String(r.name),
+        bytes: Number(r.bytes),
+        pretty: String(r.pretty),
+      })),
+    };
+  } catch {
+    return EMPTY_STATS;
+  } finally {
+    await sql.end({ timeout: 5 }).catch(() => {});
+  }
+}
+
+export type QueryResult =
+  | {
+      ok: true;
+      columns: string[];
+      rows: unknown[][];
+      rowCount: number;
+      truncated: boolean;
+      durationMs: number;
+    }
+  | { ok: false; error: string };
+
+const MAX_ROWS = 1000;
+
+/**
+ * Run one owner-supplied statement against their DB. Hardened: extended/cursor
+ * protocol (forbids multi-statement, so user SQL can't `SET statement_timeout=0`
+ * and run away), a DB-side statement_timeout, a JS wall-clock ceiling, and a
+ * cursor that stops after MAX_ROWS so a huge result can't OOM the control plane.
+ */
+export async function runUserQuery(
+  connectionUri: string,
+  sqlText: string,
+): Promise<QueryResult> {
+  const trimmed = sqlText.trim().replace(/;+\s*$/, "");
+  if (!trimmed) return { ok: false, error: "Enter a SQL statement." };
+
+  const sql = tenantConn(connectionUri, 15000);
+  const start = Date.now();
+  const columns: string[] = [];
+  const rows: unknown[][] = [];
+  let truncated = false;
+
+  try {
+    const run = (async () => {
+      // .cursor() uses the extended protocol (a portal), which refuses multiple
+      // commands and lets us stop fetching after MAX_ROWS.
+      const cursor = sql.unsafe(trimmed, [], { prepare: true }).cursor(200);
+      for await (const chunk of cursor) {
+        if (columns.length === 0 && chunk.length > 0) {
+          for (const k of Object.keys(chunk[0] as object)) columns.push(k);
+        }
+        for (const r of chunk as Record<string, unknown>[]) {
+          if (rows.length >= MAX_ROWS) {
+            truncated = true;
+            return;
+          }
+          rows.push(columns.map((c) => r[c]));
+        }
+      }
+    })();
+
+    await Promise.race([
+      run,
+      new Promise((_, reject) =>
+        setTimeout(
+          () => reject(new Error("Query exceeded the time limit.")),
+          20000,
+        ),
+      ),
+    ]);
+
+    return {
+      ok: true,
+      columns,
+      rows,
+      rowCount: rows.length,
+      truncated,
+      durationMs: Date.now() - start,
+    };
+  } catch (err) {
+    return { ok: false, error: sanitizeDbError(err, connectionUri) };
+  } finally {
+    await sql.end({ timeout: 5 }).catch(() => {});
+  }
 }
 
 /**
