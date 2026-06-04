@@ -28,6 +28,8 @@ import {
   addAppDomain,
   removeAppDomain,
   refreshAppDomainStatus,
+  setRegistryCredential,
+  removeRegistryCredential,
 } from "@korepush/k8s";
 import {
   mintCloneTokenForRepo,
@@ -515,6 +517,39 @@ export async function removeAppDomainAction(
   try {
     await removeAppDomain(spaceSlug, appSlug, host);
     revalidatePath(`/spaces/${spaceSlug}/apps/${appSlug}`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  }
+}
+
+export async function addRegistryCredentialAction(
+  spaceSlug: string,
+  registry: string,
+  username: string,
+  password: string,
+): Promise<ActionResult> {
+  await assertOwnsSpace(spaceSlug);
+  if (!username.trim() || !password) {
+    return { ok: false, error: "Username and password are required." };
+  }
+  try {
+    await setRegistryCredential(spaceSlug, registry, username.trim(), password);
+    revalidatePath(`/spaces/${spaceSlug}/settings`);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  }
+}
+
+export async function removeRegistryCredentialAction(
+  spaceSlug: string,
+  registry: string,
+): Promise<ActionResult> {
+  await assertOwnsSpace(spaceSlug);
+  try {
+    await removeRegistryCredential(spaceSlug, registry);
+    revalidatePath(`/spaces/${spaceSlug}/settings`);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: errorMessage(err) };

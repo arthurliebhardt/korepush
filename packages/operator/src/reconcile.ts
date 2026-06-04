@@ -148,6 +148,15 @@ export async function reconcile(namespace: string, name: string): Promise<void> 
   const restartedAt = app.metadata.annotations?.["korepush.io/restartedAt"];
   const podAnnotations = restartedAt ? { "korepush.io/restartedAt": restartedAt } : undefined;
 
+  // Private-registry pull secret: attach the space's merged pull secret if it
+  // exists (the control plane maintains `korepush-pull` when registry creds are
+  // added). Harmless for public images.
+  const hasPull = await core
+    .readNamespacedSecret({ name: "korepush-pull", namespace })
+    .then(() => true)
+    .catch(() => false);
+  const imagePullSecrets = hasPull ? [{ name: "korepush-pull" }] : undefined;
+
   // Deployment: create, or replace only when the meaningful spec drifted.
   // Replace is a read-modify-write on a live object (its readyReplicas churns),
   // so retry on 409 by re-reading — the work queue would retry anyway, this just
@@ -164,7 +173,10 @@ export async function reconcile(namespace: string, name: string): Promise<void> 
             selector: { matchLabels: { app: name } },
             template: {
               metadata: { labels, ...(podAnnotations ? { annotations: podAnnotations } : {}) },
-              spec: { containers: [container] },
+              spec: {
+                containers: [container],
+                ...(imagePullSecrets ? { imagePullSecrets } : {}),
+              },
             },
           },
         },
@@ -184,12 +196,13 @@ export async function reconcile(namespace: string, name: string): Promise<void> 
     const drifted =
       needsOwner ||
       restartChanged ||
-      JSON.stringify([cur?.image, cur?.env, cur?.envFrom, existing.spec?.replicas]) !==
-        JSON.stringify([container.image, container.env, container.envFrom, replicas]);
+      JSON.stringify([cur?.image, cur?.env, cur?.envFrom, existing.spec?.replicas, existing.spec?.template?.spec?.imagePullSecrets]) !==
+        JSON.stringify([container.image, container.env, container.envFrom, replicas, imagePullSecrets]);
     if (!drifted) break;
     existing.metadata = { ...existing.metadata, labels, ownerReferences: [owner] };
     existing.spec!.replicas = replicas;
     existing.spec!.template.spec!.containers = [container];
+    existing.spec!.template.spec!.imagePullSecrets = imagePullSecrets;
     const tmpl = existing.spec!.template;
     tmpl.metadata = tmpl.metadata ?? {};
     if (restartedAt) {

@@ -305,6 +305,19 @@ export function CreateApp({
                 onChange={(e) => setImage(e.target.value)}
                 required
               />
+              <p className="mt-1 text-xs text-muted">
+                Public images pull as-is. For a private image, add the
+                registry login under{" "}
+                <a
+                  className="text-foreground underline underline-offset-2 hover:text-foreground/80"
+                  href={`/spaces/${spaceSlug}/settings`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Settings → Registry credentials
+                </a>
+                .
+              </p>
             </div>
             <div>
               <label className="label">Container port</label>

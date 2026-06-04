@@ -102,6 +102,12 @@ export {
   listAllDatabases,
   listAllDomains,
 } from "./overview";
+export {
+  listRegistryCredentials,
+  setRegistryCredential,
+  removeRegistryCredential,
+} from "./registry";
+export type { RegistryCredential } from "./registry";
 export { slugify } from "./util";
 export { parseComposePlan } from "./compose";
 export type {

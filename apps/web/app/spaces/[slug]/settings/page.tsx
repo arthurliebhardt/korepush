@@ -1,7 +1,9 @@
 import { requireSpacePage } from "@/lib/session";
+import { listRegistryCredentials } from "@korepush/k8s";
 import { AppShell } from "@/components/app-shell";
 import { StatusBadge } from "@/components/status-badge";
 import { DeleteSpace } from "@/components/delete-space";
+import { RegistryCredentials } from "@/components/registry-credentials";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +15,9 @@ export default async function SpaceSettingsPage({
   const { slug } = await params;
   const { session, space } = await requireSpacePage(slug);
   const u = session.user as { id: string; email: string; role?: string };
+  const registryCreds = await listRegistryCredentials(space.namespace).catch(
+    () => [],
+  );
 
   return (
     <AppShell
@@ -44,6 +49,13 @@ export default async function SpaceSettingsPage({
             </dd>
           </dl>
         </section>
+
+        <div className="mb-6">
+          <RegistryCredentials
+            spaceSlug={space.slug}
+            initial={registryCreds}
+          />
+        </div>
 
         <DeleteSpace slug={space.slug} name={space.name} />
       </main>
