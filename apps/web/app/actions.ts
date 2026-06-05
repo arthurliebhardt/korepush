@@ -42,6 +42,7 @@ import {
   mintCloneTokenForRepo,
   detectPort,
   canonicalRepoUrl,
+  disconnectInstallation,
 } from "@/lib/github/app";
 import { detectProject } from "@/lib/github/detect";
 
@@ -899,6 +900,23 @@ export async function setDomainAction(
       email: session.user.email,
       useStaging,
     });
+    revalidatePath("/settings");
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: errorMessage(err) };
+  }
+}
+
+/** Disconnect a GitHub account/org: uninstall the app from it + drop the link. */
+export async function disconnectGithubAccountAction(
+  installationId: string,
+): Promise<ActionResult> {
+  const session = await requireUser();
+  if ((session.user as { role?: string }).role !== "admin") {
+    return { ok: false, error: "Only an admin can manage GitHub accounts." };
+  }
+  try {
+    await disconnectInstallation(installationId);
     revalidatePath("/settings");
     return { ok: true };
   } catch (err) {

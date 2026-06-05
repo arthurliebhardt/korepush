@@ -42,6 +42,11 @@ export async function GET() {
     url: base,
     hook_attributes: { url: `${base}/api/github/webhook`, active: true },
     redirect_url: `${base}/api/github/manifest/callback`,
+    // After a user installs the app on an account/org, GitHub returns here so we
+    // record the installation immediately (not only via the webhook) and send
+    // them back to Settings. setup_on_update re-fires when repo access changes.
+    setup_url: `${base}/api/github/installations/callback`,
+    setup_on_update: true,
     public: false,
     default_permissions: { contents: "read", metadata: "read" },
     default_events: ["push"],

@@ -71,7 +71,7 @@ export async function listInstallationRepos(
   }));
 }
 
-/* ──────────────── installations (from the 'installation' webhook) ──────────────── */
+/* ──────────────── connected accounts / installations ──────────────── */
 
 export async function recordInstallation(
   installationId: string,
@@ -80,7 +80,10 @@ export async function recordInstallation(
   await db
     .insert(schema.githubInstallations)
     .values({ installationId, accountLogin })
-    .onConflictDoNothing();
+    .onConflictDoUpdate({
+      target: schema.githubInstallations.installationId,
+      set: { accountLogin },
+    });
 }
 
 export async function removeInstallation(installationId: string) {
@@ -91,6 +94,95 @@ export async function removeInstallation(installationId: string) {
 
 export async function listInstallations() {
   return db.select().from(schema.githubInstallations);
+}
+
+/** The GitHub page where a user installs the app on another account/org. */
+export function installUrl(slug: string): string {
+  return `https://github.com/apps/${slug}/installations/new`;
+}
+
+export type ConnectedAccount = {
+  installationId: string;
+  accountLogin: string;
+  accountType: string; // "User" | "Organization"
+  htmlUrl: string | null;
+};
+
+/**
+ * Authoritative list of connected accounts, reconciled from GitHub
+ * (GET /app/installations) — NOT the webhook. Upserts current installations and
+ * prunes ones that were uninstalled, so the panel is correct even if the
+ * 'installation' webhook never reached us. Falls back to the DB list if GitHub
+ * is unreachable (so a transient outage doesn't wipe the view).
+ */
+export async function syncInstallations(): Promise<ConnectedAccount[]> {
+  const app = await getGithubApp();
+  if (!app) return [];
+  let installs: Array<{
+    id: number;
+    account?: { login?: string; type?: string; html_url?: string };
+  }>;
+  try {
+    const res = await app.octokit.request("GET /app/installations", { per_page: 100 });
+    installs = res.data as typeof installs;
+  } catch {
+    return (await listInstallations()).map((i) => ({
+      installationId: i.installationId,
+      accountLogin: i.accountLogin,
+      accountType: "",
+      htmlUrl: null,
+    }));
+  }
+
+  const live: ConnectedAccount[] = installs.map((i) => ({
+    installationId: String(i.id),
+    accountLogin: i.account?.login ?? "",
+    accountType: i.account?.type ?? "",
+    htmlUrl: i.account?.html_url ?? null,
+  }));
+  const liveIds = new Set(live.map((l) => l.installationId));
+
+  for (const l of live) {
+    await recordInstallation(l.installationId, l.accountLogin).catch(() => {});
+  }
+  for (const row of await listInstallations()) {
+    if (!liveIds.has(row.installationId)) {
+      await removeInstallation(row.installationId).catch(() => {});
+    }
+  }
+  return live.sort((a, b) => a.accountLogin.localeCompare(b.accountLogin));
+}
+
+/** How many apps deploy from a given installation (warn before disconnecting). */
+export async function appsUsingInstallation(installationId: string): Promise<number> {
+  const [row] = await db
+    .select({ id: schema.githubInstallations.id })
+    .from(schema.githubInstallations)
+    .where(eq(schema.githubInstallations.installationId, installationId))
+    .limit(1);
+  if (!row) return 0;
+  const apps = await db
+    .select({ id: schema.apps.id })
+    .from(schema.apps)
+    .where(eq(schema.apps.githubInstallationId, row.id));
+  return apps.length;
+}
+
+/**
+ * Disconnect an account: uninstall the app from it on GitHub (so it stops
+ * appearing + revokes access), then drop the local row. The apps.* FK is
+ * ON DELETE SET NULL, so dependent apps keep running and just lose the link.
+ */
+export async function disconnectInstallation(installationId: string): Promise<void> {
+  const app = await getGithubApp();
+  if (app) {
+    await app.octokit
+      .request("DELETE /app/installations/{installation_id}", {
+        installation_id: Number(installationId),
+      })
+      .catch(() => {}); // tolerate already-uninstalled
+  }
+  await removeInstallation(installationId);
 }
 
 /**

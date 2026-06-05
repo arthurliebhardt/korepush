@@ -165,8 +165,11 @@ export const apps = pgTable("apps", {
   // `<slug>-env` (never in Postgres), injected via envFrom.secretRef.
   secretKeys: jsonb("secret_keys").$type<string[]>().default([]).notNull(),
   status: resourceStatus("status").default("pending").notNull(),
+  // Disconnecting a GitHub account deletes its installation row; null the link
+  // on dependent apps (they keep running, just lose auto-deploy until relinked).
   githubInstallationId: uuid("github_installation_id").references(
     () => githubInstallations.id,
+    { onDelete: "set null" },
   ),
   // An attached database's connection string is injected as `dbEnvVar`.
   attachedDbId: uuid("attached_db_id").references((): AnyPgColumn => databases.id, {

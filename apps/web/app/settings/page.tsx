@@ -3,7 +3,8 @@ import { getControlPlaneInfo } from "@korepush/k8s";
 import { DomainSettings } from "@/components/domain-settings";
 import { AppShell } from "@/components/app-shell";
 import { getAppConfig } from "@/lib/github/config";
-import { listInstallations } from "@/lib/github/app";
+import { syncInstallations, appsUsingInstallation, installUrl } from "@/lib/github/app";
+import { GithubAccounts, type GithubAccount } from "@/components/github-accounts";
 
 export const dynamic = "force-dynamic";
 
@@ -20,8 +21,17 @@ export default async function SettingsPage() {
       "(the korepush-system resources aren't reachable from this dev server).";
   }
 
+  // Reconcile connected accounts straight from GitHub (authoritative) so the
+  // panel is correct even if the 'installation' webhook never reached us.
   const ghApp = await getAppConfig().catch(() => null);
-  const installations = ghApp ? await listInstallations().catch(() => []) : [];
+  const accounts: GithubAccount[] = ghApp
+    ? await Promise.all(
+        (await syncInstallations().catch(() => [])).map(async (a) => ({
+          ...a,
+          appCount: await appsUsingInstallation(a.installationId).catch(() => 0),
+        })),
+      )
+    : [];
 
   return (
     <AppShell
@@ -40,49 +50,27 @@ export default async function SettingsPage() {
 
       {/* ── GitHub ── */}
       <div className="mb-8 space-y-3">
-        <h2 className="text-sm font-medium text-muted">GitHub</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-sm font-medium text-muted">GitHub accounts</h2>
+          {ghApp && (
+            <a className="text-xs text-muted hover:text-foreground" href="/api/github/manifest">
+              Reconnect a different app
+            </a>
+          )}
+        </div>
         {ghApp ? (
-          <div className="card space-y-3">
-            <p className="text-sm">
-              Connected as{" "}
-              <a
-                href={ghApp.htmlUrl ?? "#"}
-                className="font-mono text-foreground underline"
-              >
-                {ghApp.slug}
-              </a>
-            </p>
-            <div className="text-sm text-muted">
-              Installations:{" "}
-              {installations.length === 0 ? (
-                <span>none yet — install the app to connect repos.</span>
-              ) : (
-                <span className="text-foreground">
-                  {installations.map((i) => i.accountLogin).join(", ")}
-                </span>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <a
-                className="btn-ghost"
-                href={`https://github.com/apps/${ghApp.slug}/installations/new`}
-              >
-                Install on a repo/org
-              </a>
-              <a className="btn-ghost" href="/api/github/manifest">
-                Reconnect
-              </a>
-            </div>
-            <p className="text-xs text-muted">
-              Pushes to connected repos auto-deploy matching apps. Private repos
-              are cloned with a short-lived installation token.
-            </p>
-          </div>
+          <GithubAccounts
+            slug={ghApp.slug}
+            appHtmlUrl={ghApp.htmlUrl}
+            installUrl={installUrl(ghApp.slug)}
+            accounts={accounts}
+          />
         ) : (
           <div className="card space-y-3">
             <p className="text-sm text-muted">
               Connect a GitHub App to deploy from repos and auto-deploy on push.
-              One click creates the app on your account — no manual setup.
+              One click creates the app on your account, then you can add more
+              accounts and organizations.
             </p>
             <a className="btn-primary w-fit" href="/api/github/manifest">
               Connect GitHub
