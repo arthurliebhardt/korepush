@@ -1,16 +1,21 @@
 import Link from "next/link";
-import { requireUser } from "@/lib/session";
+import { getSession } from "@/lib/session";
 import { listSpacesWithStats } from "@korepush/k8s";
 import { getAppConfig } from "@/lib/github/config";
 import { StatusBadge } from "@/components/status-badge";
 import { CreateSpace } from "@/components/create-space";
 import { Onboarding } from "@/components/onboarding";
 import { AppShell } from "@/components/app-shell";
+import { LandingPage } from "@/components/landing-page";
 
 export const dynamic = "force-dynamic";
 
-export default async function DashboardPage() {
-  const session = await requireUser();
+export default async function HomePage() {
+  // Public marketing landing for logged-out visitors (korepush.com); the
+  // dashboard for signed-in users.
+  const session = await getSession();
+  if (!session) return <LandingPage />;
+
   // Each user sees only their own spaces; an admin sees the whole platform.
   const isAdmin = (session.user as { role?: string }).role === "admin";
   const [spaces, ghApp] = await Promise.all([

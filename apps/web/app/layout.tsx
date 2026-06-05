@@ -16,8 +16,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "korepush",
-  description: "Self-hosted Vercel-like PaaS on Kubernetes",
+  title: "korepush — Self-hosted push-to-deploy PaaS on a server you own",
+  description:
+    "korepush is an open-source, self-hosted PaaS: the Vercel/Railway push-to-deploy workflow — auto-detected builds, live logs, managed Postgres and Redis, automatic HTTPS, one-click rollbacks — on a single Linux box you own. One command. No cloud bill, no lock-in.",
 };
 
 export default function RootLayout({
