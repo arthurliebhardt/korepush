@@ -187,10 +187,10 @@ export async function deleteDatabase(spaceSlug: string, slug: string) {
 }
 
 // ---------------------------------------------------------------------------
-// Tenant DB console — connect to a USER's CNPG database (never the control
-// plane) to read live stats and run owner-supplied SQL. The connection URI is
-// always resolved server-side from the owned database row (see the web action);
-// this layer just takes the already-resolved URI and runs against it safely.
+// Tenant DB stats — connect to a USER's CNPG database (never the control plane)
+// to read live, read-only introspection (size, connections, tables). The
+// connection URI is always resolved server-side from the owned database row;
+// this layer just takes the already-resolved URI and reads against it safely.
 // ---------------------------------------------------------------------------
 
 // A transient, single-connection client with hard server-side ceilings baked
@@ -212,16 +212,6 @@ function tenantConn(uri: string, statementTimeoutMs: number) {
       lock_timeout: 3000,
     },
   });
-}
-
-// Never leak the connection URI/host (or a raw Error) to the client.
-function sanitizeDbError(err: unknown, uri: string): string {
-  let msg = err instanceof Error ? err.message : "Query failed.";
-  try {
-    const host = new URL(uri).host;
-    if (host) msg = msg.split(host).join("<db>");
-  } catch {}
-  return msg.split(uri).join("<db>").slice(0, 2000);
 }
 
 export type DbStats = {
@@ -285,82 +275,6 @@ export async function getDatabaseStats(connectionUri: string): Promise<DbStats> 
     };
   } catch {
     return EMPTY_STATS;
-  } finally {
-    await sql.end({ timeout: 5 }).catch(() => {});
-  }
-}
-
-export type QueryResult =
-  | {
-      ok: true;
-      columns: string[];
-      rows: unknown[][];
-      rowCount: number;
-      truncated: boolean;
-      durationMs: number;
-    }
-  | { ok: false; error: string };
-
-const MAX_ROWS = 1000;
-
-/**
- * Run one owner-supplied statement against their DB. Hardened: extended/cursor
- * protocol (forbids multi-statement, so user SQL can't `SET statement_timeout=0`
- * and run away), a DB-side statement_timeout, a JS wall-clock ceiling, and a
- * cursor that stops after MAX_ROWS so a huge result can't OOM the control plane.
- */
-export async function runUserQuery(
-  connectionUri: string,
-  sqlText: string,
-): Promise<QueryResult> {
-  const trimmed = sqlText.trim().replace(/;+\s*$/, "");
-  if (!trimmed) return { ok: false, error: "Enter a SQL statement." };
-
-  const sql = tenantConn(connectionUri, 15000);
-  const start = Date.now();
-  const columns: string[] = [];
-  const rows: unknown[][] = [];
-  let truncated = false;
-
-  try {
-    const run = (async () => {
-      // .cursor() uses the extended protocol (a portal), which refuses multiple
-      // commands and lets us stop fetching after MAX_ROWS.
-      const cursor = sql.unsafe(trimmed, [], { prepare: true }).cursor(200);
-      for await (const chunk of cursor) {
-        if (columns.length === 0 && chunk.length > 0) {
-          for (const k of Object.keys(chunk[0] as object)) columns.push(k);
-        }
-        for (const r of chunk as Record<string, unknown>[]) {
-          if (rows.length >= MAX_ROWS) {
-            truncated = true;
-            return;
-          }
-          rows.push(columns.map((c) => r[c]));
-        }
-      }
-    })();
-
-    await Promise.race([
-      run,
-      new Promise((_, reject) =>
-        setTimeout(
-          () => reject(new Error("Query exceeded the time limit.")),
-          20000,
-        ),
-      ),
-    ]);
-
-    return {
-      ok: true,
-      columns,
-      rows,
-      rowCount: rows.length,
-      truncated,
-      durationMs: Date.now() - start,
-    };
-  } catch (err) {
-    return { ok: false, error: sanitizeDbError(err, connectionUri) };
   } finally {
     await sql.end({ timeout: 5 }).catch(() => {});
   }
