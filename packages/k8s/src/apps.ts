@@ -32,6 +32,7 @@ import {
   patchKoreApp,
   deleteKoreApp,
   type VolumeSpec,
+  type HealthcheckSpec,
 } from "./koreapp";
 
 export { getNodeIp } from "./routing";
@@ -1017,4 +1018,90 @@ export async function setAppVolumes(
     .where(eq(schema.apps.id, app.id));
   // Roll the pod so new mounts take effect (Recreate when volumes present).
   await patchKoreApp(space.namespace, appSlug, { spec: { volumes: next }, restart: true });
+}
+
+// In-place update of an IMAGE app's flat spec fields (used by compose re-import).
+// `undefined` = leave a field as-is; an explicit value (incl. null) sets/clears
+// it. NOTE: env/volumes/db-attach are NOT here — callers use setAppEnv /
+// setAppVolumes / attachDatabase|detachDatabase (those have their own safe
+// paths). PORT is intentionally absent — it's effectively immutable (the
+// operator's Service is create-if-missing and the HTTPRoute hardcodes port 80,
+// so an in-place port change would leave routing pointing at the old port).
+export type UpdateAppInput = {
+  image?: string;
+  cpuLimit?: string | null;
+  memoryLimit?: string | null;
+  command?: string[] | null;
+  args?: string[] | null;
+  healthcheck?: HealthcheckSpec | null;
+};
+
+const normArr = (a: string[] | null | undefined) => (a && a.length ? a : null);
+const normHc = (h: HealthcheckSpec | null | undefined) =>
+  h?.test?.length && h.test[0] !== "NONE" ? h : null;
+const jeq = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+
+export async function updateApp(
+  spaceSlug: string,
+  appSlug: string,
+  updates: UpdateAppInput,
+) {
+  const space = await getSpaceBySlug(spaceSlug);
+  if (!space) throw new Error("Space not found");
+  const app = await getApp(space.id, appSlug);
+  if (!app) throw new Error("App not found");
+  if (app.source !== "image") {
+    throw new Error("Only image apps can be updated from compose.");
+  }
+
+  const spec: Record<string, unknown> = {};
+  const dbPatch: Record<string, unknown> = {};
+
+  if (updates.image !== undefined && updates.image !== app.image) {
+    spec.image = updates.image;
+    dbPatch.image = updates.image;
+  }
+
+  // Resources: merge-patch replaces spec.resources wholesale, so always send the
+  // full {cpu?, memory?} (filling the untouched side from the current row), or
+  // null to clear back to operator defaults.
+  if (updates.cpuLimit !== undefined || updates.memoryLimit !== undefined) {
+    const cpu = updates.cpuLimit !== undefined ? updates.cpuLimit : app.cpuLimit;
+    const memory = updates.memoryLimit !== undefined ? updates.memoryLimit : app.memoryLimit;
+    if (cpu !== app.cpuLimit || memory !== app.memoryLimit) {
+      dbPatch.cpuLimit = cpu;
+      dbPatch.memoryLimit = memory;
+      spec.resources =
+        cpu || memory
+          ? { ...(cpu ? { cpu } : {}), ...(memory ? { memory } : {}) }
+          : null;
+    }
+  }
+
+  if (updates.command !== undefined && !jeq(normArr(updates.command), normArr(app.command))) {
+    const v = normArr(updates.command);
+    spec.command = v;
+    dbPatch.command = v;
+  }
+  if (updates.args !== undefined && !jeq(normArr(updates.args), normArr(app.args))) {
+    const v = normArr(updates.args);
+    spec.args = v;
+    dbPatch.args = v;
+  }
+  if (updates.healthcheck !== undefined && !jeq(normHc(updates.healthcheck), normHc(app.healthcheck))) {
+    const v = normHc(updates.healthcheck);
+    spec.healthcheck = v;
+    dbPatch.healthcheck = v;
+  }
+
+  if (Object.keys(dbPatch).length === 0) return; // nothing actually changed
+
+  await db
+    .update(schema.apps)
+    .set({ ...dbPatch, updatedAt: new Date() })
+    .where(eq(schema.apps.id, app.id));
+  // restart:true is MANDATORY: the operator's Deployment drift comparison
+  // excludes resources/command/args/healthcheck, so without a restart stamp
+  // those CR changes would silently never reach the live pod.
+  await patchKoreApp(space.namespace, appSlug, { spec, restart: true });
 }

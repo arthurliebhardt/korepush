@@ -45,6 +45,7 @@ export {
   detachDatabase,
   setAppEnv,
   setAppVolumes,
+  updateApp,
   rollbackDeployment,
   listDeployments,
   getDeployment,
@@ -58,7 +59,7 @@ export {
   backfillKoreApps,
   startBuildFinalizer,
 } from "./apps";
-export type { CreateAppInput, CreateGitAppInput } from "./apps";
+export type { CreateAppInput, CreateGitAppInput, UpdateAppInput } from "./apps";
 export {
   BUILD_NS,
   buildImageRef,
@@ -109,8 +110,17 @@ export {
   listStackMembers,
   createStack,
   deleteStack,
+  computeStackDiff,
+  setStackSourceYaml,
 } from "./stacks";
-export type { StackDeleteFailure } from "./stacks";
+export type {
+  StackDeleteFailure,
+  StackDiff,
+  AppUpdatePlan,
+  AppRemovePlan,
+  DbRemovePlan,
+  FieldChange,
+} from "./stacks";
 export {
   listRegistryCredentials,
   setRegistryCredential,

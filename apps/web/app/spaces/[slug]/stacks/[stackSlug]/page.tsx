@@ -4,6 +4,7 @@ import { requireSpacePage } from "@/lib/session";
 import { AppShell } from "@/components/app-shell";
 import { StatusBadge } from "@/components/status-badge";
 import { DeleteStack } from "@/components/delete-stack";
+import { ReImportStack } from "@/components/reimport-stack";
 import { getStackWithMembers } from "@/lib/space-data";
 import { timeAgo } from "@/lib/time";
 
@@ -105,6 +106,15 @@ export default async function StackDetailPage({
             )}
           </>
         )}
+
+        <div className="mb-6">
+          <ReImportStack
+            spaceSlug={space.slug}
+            stackSlug={stack.slug}
+            stackName={stack.name}
+            initialYaml={stack.sourceYaml ?? ""}
+          />
+        </div>
 
         <DeleteStack
           spaceSlug={space.slug}

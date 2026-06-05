@@ -243,6 +243,10 @@ export const stacks = pgTable("stacks", {
     .references(() => spaces.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   slug: text("slug").notNull(),
+  // The last successfully-imported compose YAML — ADVISORY ONLY: it pre-fills
+  // the re-import textarea + is an audit trail. It is NEVER the diff base (the
+  // live apps/databases rows are authoritative) and is NOT drift-reconciled.
+  sourceYaml: text("source_yaml"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 }, (t) => [

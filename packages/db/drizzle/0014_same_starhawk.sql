@@ -1,0 +1,1 @@
+ALTER TABLE "stacks" ADD COLUMN "source_yaml" text;
